@@ -8,9 +8,9 @@ import {
   saveFurniture,
 } from "../services/furniture";
 import path from "node:path";
-import fs from "node:fs";
 import { FURNITURE_PATH } from "../config/path";
 import { type UploadedFiles } from "../config/multer";
+import { deleteFile } from "../utils/file";
 
 export const getFurnitureController: RequestHandler<{ id: string }> = async (
   req,
@@ -112,10 +112,12 @@ export const patchFurnitureFileController: RequestHandler<{
   try {
     const furniture = await getFurnitureById(id);
     if (!furniture) {
+      deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found");
       return;
     }
     if (furniture.owner_id !== playfab.id) {
+      deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found");
       return;
     }
@@ -144,10 +146,12 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   try {
     const furniture = await getFurnitureById(id);
     if (!furniture) {
+      deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found");
       return;
     }
     if (furniture.owner_id !== playfab.id) {
+      deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found");
       return;
     }
