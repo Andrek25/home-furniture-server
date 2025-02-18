@@ -48,7 +48,7 @@ export async function deleteFurnitureById(id: number, ownerId: string) {
     .deleteFrom("furniture")
     .where("id", "=", id)
     .where("owner_id", "=", ownerId)
-    .returning(["id as id", "local_name as local_name"])
+    .returning(["id as id", "local_name as local_name", "thumbnail as thumbnail"])
     .executeTakeFirst();
 
   if (furniture) {
@@ -57,6 +57,13 @@ export async function deleteFurnitureById(id: number, ownerId: string) {
         console.error(`Error deleting file ${furniture.local_name}: ${err}`);
       }
     });
+    if (furniture.thumbnail) {
+      fs.unlink(path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)), (err) => {
+        if (err) {
+          console.error(`Error deleting thumbnail ${furniture.thumbnail}: ${err}`);
+        }
+      });
+    }
   }
 
   return furniture;
