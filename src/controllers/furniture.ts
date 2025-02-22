@@ -41,19 +41,22 @@ export const postFurnitureController: RequestHandler = async (req, res) => {
       const files = req.files as unknown as UploadedFiles;
       const file = files.file[0];
       const thumbnail = files.thumbnail?.[0];
-      await saveFurniture(
+      const furniture = await saveFurniture(
         playfab.id,
         file.filename,
         file.originalname,
         thumbnail?.filename
       );
+      if (!furniture) {
+        throw new Error("Failed to save furniture");
+      }
+      res.status(200).json({ id: furniture.id });
     } catch (error) {
       console.error(error);
       res.sendStatus(500);
       return;
     }
   }
-  res.sendStatus(200);
 };
 
 export const getFurnituresController: RequestHandler = async (req, res) => {
