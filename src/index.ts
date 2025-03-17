@@ -4,9 +4,11 @@ import { ENV } from "./config/env";
 import { setupRoutes } from "./routes";
 import { initPaths, PUBLIC_PATH } from "./config/path";
 import morgan from "morgan";
+import helmet from "helmet";
 
 const app = express();
 
+app.use(helmet());
 app.use(
   cors({
     credentials: true,
