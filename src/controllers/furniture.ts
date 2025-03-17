@@ -17,17 +17,12 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
   res
 ) => {
   const id = Number(req.params.id);
-  const playfab = (req as any).playfab;
   if (Number.isNaN(id)) {
     res.status(400).send("You must provide a valid id");
     return;
   }
   const furniture = await getFurnitureById(id);
   if (!furniture) {
-    res.status(404).send("Furniture not found");
-    return;
-  }
-  if (furniture.owner_id !== playfab.id) {
     res.status(404).send("Furniture not found");
     return;
   }
