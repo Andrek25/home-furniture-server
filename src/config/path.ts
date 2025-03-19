@@ -1,9 +1,11 @@
 import path from "node:path";
 import fs from "node:fs";
 
-export const PUBLIC_PATH = "/var/furniture-server/public";
+export const ROOT_PATH = "/var/furniture-server";
 
-export const FURNITURE_PATH = "/var/furniture-server/furnitures";
+export const PUBLIC_PATH = path.join(ROOT_PATH, "public");
+
+export const FURNITURE_PATH = path.join(ROOT_PATH, "furnitures");
 
 export const THUMBNAIL_PATH = path.join(PUBLIC_PATH, "thumbnails");
 
