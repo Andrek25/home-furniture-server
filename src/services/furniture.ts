@@ -5,16 +5,16 @@ import fs from "node:fs";
 import { Furniture } from "../db/tables/furniture";
 import { generateThumbnailURL } from "../utils/thumbnails";
 
-export async function getFurnitureById(id: number, options?: { ownerId?: string }) {
+export async function getFurnitureById(
+  id: number,
+  options?: { ownerId?: string }
+) {
   const { ownerId } = options || {};
 
-  let query = db
-    .selectFrom("furniture")
-    .selectAll()
-    .where("id", "=", id)
+  let query = db.selectFrom("furniture").selectAll().where("id", "=", id);
 
   if (ownerId) {
-    query = query.where(({ exists, selectFrom }) => 
+    query = query.where(({ exists, selectFrom }) =>
       exists(
         selectFrom("furniture_owner")
           // This is required only for SQLite DB, which requires a column in the select
@@ -22,9 +22,9 @@ export async function getFurnitureById(id: number, options?: { ownerId?: string 
           .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
           .where("owner_id", "=", ownerId)
       )
-    )
+    );
   }
-  
+
   return await query.executeTakeFirst();
 }
 
@@ -62,7 +62,11 @@ export async function saveFurniture(
 export async function getFurnituresByOwnerId(ownerId: string) {
   const furnitures = await db
     .selectFrom("furniture")
-    .innerJoin("furniture_owner", "furniture.id", "furniture_owner.furniture_id")
+    .innerJoin(
+      "furniture_owner",
+      "furniture.id",
+      "furniture_owner.furniture_id"
+    )
     .select(["furniture.id", "furniture.file_name", "furniture.thumbnail"])
     .where("furniture_owner.owner_id", "=", ownerId)
     .orderBy("furniture.created_at", "asc")
@@ -71,16 +75,23 @@ export async function getFurnituresByOwnerId(ownerId: string) {
   return furnitures;
 }
 
-export async function deleteFurnitureById(furnitureId: number, options?: { ownerId?: string }) {
+export async function deleteFurnitureById(
+  furnitureId: number,
+  options?: { ownerId?: string }
+) {
   const { ownerId } = options || {};
 
   let query = db
     .deleteFrom("furniture")
     .where("id", "=", furnitureId)
-    .returning(["id as id", "local_name as local_name", "thumbnail as thumbnail"]);
+    .returning([
+      "id as id",
+      "local_name as local_name",
+      "thumbnail as thumbnail",
+    ]);
 
   if (ownerId) {
-    query = query.where(({ exists, selectFrom }) => 
+    query = query.where(({ exists, selectFrom }) =>
       exists(
         selectFrom("furniture_owner")
           // This is required only for SQLite DB, which requires a column in the select
@@ -88,7 +99,7 @@ export async function deleteFurnitureById(furnitureId: number, options?: { owner
           .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
           .where("owner_id", "=", ownerId)
       )
-    )
+    );
   }
 
   const furniture = await query.executeTakeFirst();
@@ -100,11 +111,16 @@ export async function deleteFurnitureById(furnitureId: number, options?: { owner
       }
     });
     if (furniture.thumbnail) {
-      fs.unlink(path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)), (err) => {
-        if (err) {
-          console.error(`Error deleting thumbnail ${furniture.thumbnail}: ${err}`);
+      fs.unlink(
+        path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
+        (err) => {
+          if (err) {
+            console.error(
+              `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
+            );
+          }
         }
-      });
+      );
     }
   }
 
