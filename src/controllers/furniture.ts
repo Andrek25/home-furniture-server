@@ -222,3 +222,26 @@ export const patchFurnitureRemoveOwnerController: RequestHandler<
   }
   res.sendStatus(200);
 };
+
+export const getFurnitureOwnersController: RequestHandler<{ id: string }> = async (
+  req,
+  res
+) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) {
+    res.status(400).send("You must provide a valid id");
+    return;
+  }
+  const playfab = (req as any).playfab;
+  try {
+    const furnitureOwners = await getFurnitureOwners(id, { ownerId: playfab.id });
+    if (!furnitureOwners) {
+      res.status(404).send("Furniture not found or you don't own it");
+      return;
+    }
+    res.send({ furnitureId: id, owners: furnitureOwners });
+  } catch (error) {
+    console.error(error);
+    res.sendStatus(500);
+  }
+};

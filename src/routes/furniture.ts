@@ -8,6 +8,7 @@ import {
   patchFurnitureThumbnailController,
   postFurnitureController,
   patchFurnitureRemoveOwnerController,
+  getFurnitureOwnersController,
 } from "../controllers/furniture";
 import { uploadFurniture, uploadFurnitureFile, uploadFurnitureThumbnail } from "../config/multer";
 import { playfabMiddleware } from "../middlewares/playfab";
@@ -26,6 +27,7 @@ export function FurnitureRoutes() {
   furnitureRouter.post("/api/v1/furniture/:id/thumbnail", uploadFurnitureThumbnail, patchFurnitureThumbnailController);
   furnitureRouter.post("/api/v1/furniture/:id/owner", patchFurnitureAddOwnerController);
   furnitureRouter.delete("/api/v1/furniture/:id/owner", patchFurnitureRemoveOwnerController);
+  furnitureRouter.get("/api/v1/furniture/:id/owners", getFurnitureOwnersController);
 
   return furnitureRouter;
 }
