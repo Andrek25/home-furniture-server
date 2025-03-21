@@ -267,3 +267,14 @@ export async function addFurnitureOwner(
     })
     .executeTakeFirst();
 }
+
+export async function removeFurnitureOwner(
+  furnitureId: number,
+  ownerId: string
+) {
+  return db
+    .deleteFrom("furniture_owner")
+    .where("furniture_id", "=", furnitureId)
+    .where("owner_id", "=", ownerId)
+    .executeTakeFirst();
+}

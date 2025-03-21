@@ -5,6 +5,7 @@ import {
   getFurnitureById,
   getFurnitureOwners,
   getFurnituresByOwnerId,
+  removeFurnitureOwner,
   replaceFurnitureFile,
   replaceFurnitureThumbnail,
   saveFurniture,
@@ -175,6 +176,44 @@ export const patchFurnitureAddOwnerController: RequestHandler<
     if (!result) {
       res.status(400).send("Failed to add owner");
       return;
+    }
+  } catch (error) {
+    console.error(error);
+    res.sendStatus(500);
+    return;
+  }
+  res.sendStatus(200);
+};
+
+export const patchFurnitureRemoveOwnerController: RequestHandler<
+  { id: string },
+  any,
+  { ownerId: string, removeIfEmpty?: boolean }
+> = async (req, res) => {
+  const id = Number(req.params.id);
+  const { ownerId, removeIfEmpty } = req.body;
+  if (Number.isNaN(id)) {
+    res.status(400).send("You must provide a valid id");
+    return;
+  }
+  const playfab = (req as any).playfab;
+  try {
+    const furnitureOwners = await getFurnitureOwners(id, { ownerId: playfab.id });
+    if (!furnitureOwners) {
+      res.status(404).send("Furniture not found or you don't own it");
+      return;
+    }
+    if (!furnitureOwners.includes(ownerId)) {
+      res.status(400).send("That user doesn't own this furniture");
+      return;
+    }
+    const result = await removeFurnitureOwner(id, ownerId);
+    if (!result) {
+      res.status(400).send("Failed to remove owner");
+      return;
+    }
+    if (removeIfEmpty && furnitureOwners.length === 1) {
+      await deleteFurnitureById(id);
     }
   } catch (error) {
     console.error(error);
