@@ -76,16 +76,11 @@ export const deleteFurnitureController: RequestHandler<{ id: string }> = async (
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await deleteFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
-      res.status(404).send("Furniture not found");
+      res.status(404).send("Furniture not found or you don't own it");
       return;
     }
-    if (furniture.owner_id !== playfab.id) {
-      res.status(404).send("Furniture not found");
-      return;
-    }
-    await deleteFurnitureById(id, playfab.id);
   } catch (error) {
     console.error(error);
     res.sendStatus(500);
@@ -108,15 +103,10 @@ export const patchFurnitureFileController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
       deleteFile(path.join(req.file.path));
-      res.status(404).send("Furniture not found");
-      return;
-    }
-    if (furniture.owner_id !== playfab.id) {
-      deleteFile(path.join(req.file.path));
-      res.status(404).send("Furniture not found");
+      res.status(404).send("Furniture not found or you don't own it");
       return;
     }
     replaceFurnitureFile(furniture, req.file.filename, req.file.originalname);
@@ -142,15 +132,10 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
       deleteFile(path.join(req.file.path));
-      res.status(404).send("Furniture not found");
-      return;
-    }
-    if (furniture.owner_id !== playfab.id) {
-      deleteFile(path.join(req.file.path));
-      res.status(404).send("Furniture not found");
+      res.status(404).send("Furniture not found or you don't own it");
       return;
     }
     await replaceFurnitureThumbnail(furniture, req.file.filename);

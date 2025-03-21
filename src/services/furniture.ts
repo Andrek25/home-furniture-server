@@ -5,12 +5,27 @@ import fs from "node:fs";
 import { Furniture } from "../db/tables/furniture";
 import { generateThumbnailURL } from "../utils/thumbnails";
 
-export async function getFurnitureById(id: number) {
-  return await db
+export async function getFurnitureById(id: number, options?: { ownerId?: string }) {
+  const { ownerId } = options || {};
+
+  let query = db
     .selectFrom("furniture")
     .selectAll()
     .where("id", "=", id)
-    .executeTakeFirst();
+
+  if (ownerId) {
+    query = query.where(({ exists, selectFrom }) => 
+      exists(
+        selectFrom("furniture_owner")
+          // This is required only for SQLite DB, which requires a column in the select
+          .select(["id"])
+          .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
+          .where("owner_id", "=", ownerId)
+      )
+    )
+  }
+  
+  return await query.executeTakeFirst();
 }
 
 export async function saveFurniture(
@@ -20,36 +35,63 @@ export async function saveFurniture(
   thumbnail?: string
 ) {
   const thumbnailURL = thumbnail ? generateThumbnailURL(thumbnail) : undefined;
-  const id = await db
+
+  const furniture = await db
     .insertInto("furniture")
     .values({
-      owner_id: ownerId,
       local_name: localName,
       file_name: fileName,
       thumbnail: thumbnailURL,
     })
     .returning("id")
     .executeTakeFirst();
-  return id;
+
+  if (!furniture) throw new Error("Failed to save furniture");
+
+  await db
+    .insertInto("furniture_owner")
+    .values({
+      furniture_id: furniture.id,
+      owner_id: ownerId,
+    })
+    .execute();
+
+  return furniture;
 }
 
 export async function getFurnituresByOwnerId(ownerId: string) {
   const furnitures = await db
     .selectFrom("furniture")
-    .select(["id", "file_name", "thumbnail"])
-    .where("owner_id", "=", ownerId)
-    .orderBy("created_at", "asc")
+    .innerJoin("furniture_owner", "furniture.id", "furniture_owner.furniture_id")
+    .select(["furniture.id", "furniture.file_name", "furniture.thumbnail"])
+    .where("furniture_owner.owner_id", "=", ownerId)
+    .orderBy("furniture.created_at", "asc")
     .execute();
+
   return furnitures;
 }
 
-export async function deleteFurnitureById(id: number, ownerId: string) {
-  const furniture = await db
+export async function deleteFurnitureById(furnitureId: number, options?: { ownerId?: string }) {
+  const { ownerId } = options || {};
+
+  let query = db
     .deleteFrom("furniture")
-    .where("id", "=", id)
-    .where("owner_id", "=", ownerId)
-    .returning(["id as id", "local_name as local_name", "thumbnail as thumbnail"])
-    .executeTakeFirst();
+    .where("id", "=", furnitureId)
+    .returning(["id as id", "local_name as local_name", "thumbnail as thumbnail"]);
+
+  if (ownerId) {
+    query = query.where(({ exists, selectFrom }) => 
+      exists(
+        selectFrom("furniture_owner")
+          // This is required only for SQLite DB, which requires a column in the select
+          .select(["id"])
+          .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
+          .where("owner_id", "=", ownerId)
+      )
+    )
+  }
+
+  const furniture = await query.executeTakeFirst();
 
   if (furniture) {
     fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {

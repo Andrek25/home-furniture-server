@@ -5,6 +5,7 @@ import { setupRoutes } from "./routes";
 import { initPaths, PUBLIC_PATH } from "./config/path";
 import morgan from "morgan";
 import helmet from "helmet";
+import { initDatabase } from "./config/db";
 
 const app = express();
 
@@ -26,6 +27,8 @@ app.get("/", (req, res) => {
 setupRoutes(app);
 
 initPaths();
+
+initDatabase();
 
 app.listen(ENV.PORT, () => {
   console.log(`Server is running on port ${ENV.PORT}`);

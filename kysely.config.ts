@@ -1,13 +1,11 @@
 import { defineConfig } from "kysely-ctl";
-import { dialect } from "./src/config/db";
+import { dialect, initDatabase } from "./src/config/db";
+
+initDatabase();
 
 export default defineConfig({
   dialect,
   migrations: {
     migrationFolder: "src/db/migrations",
   },
-  // plugins: [],
-  // seeds: {
-  //   seedFolder: "seeds",
-  // },
 });
