@@ -185,7 +185,7 @@ export const patchFurnitureAddOwnerController: RequestHandler<
   res.sendStatus(200);
 };
 
-export const patchFurnitureRemoveOwnerController: RequestHandler<
+export const deleteFurnitureRemoveOwnerController: RequestHandler<
   { id: string },
   any,
   { ownerId: string, removeIfEmpty?: boolean }

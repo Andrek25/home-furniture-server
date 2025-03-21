@@ -7,7 +7,7 @@ import {
   patchFurnitureAddOwnerController,
   patchFurnitureThumbnailController,
   postFurnitureController,
-  patchFurnitureRemoveOwnerController,
+  deleteFurnitureRemoveOwnerController,
   getFurnitureOwnersController,
 } from "../controllers/furniture";
 import { uploadFurniture, uploadFurnitureFile, uploadFurnitureThumbnail } from "../config/multer";
@@ -26,7 +26,7 @@ export function FurnitureRoutes() {
   furnitureRouter.post("/api/v1/furniture/:id/file", uploadFurnitureFile, patchFurnitureFileController);
   furnitureRouter.post("/api/v1/furniture/:id/thumbnail", uploadFurnitureThumbnail, patchFurnitureThumbnailController);
   furnitureRouter.post("/api/v1/furniture/:id/owner", patchFurnitureAddOwnerController);
-  furnitureRouter.delete("/api/v1/furniture/:id/owner", patchFurnitureRemoveOwnerController);
+  furnitureRouter.delete("/api/v1/furniture/:id/owner", deleteFurnitureRemoveOwnerController);
   furnitureRouter.get("/api/v1/furniture/:id/owners", getFurnitureOwnersController);
 
   return furnitureRouter;
