@@ -4,6 +4,7 @@ import {
   getFurnitureController,
   getFurnituresController,
   patchFurnitureFileController,
+  patchFurnitureAddOwnerController,
   patchFurnitureThumbnailController,
   postFurnitureController,
 } from "../controllers/furniture";
@@ -15,12 +16,14 @@ export function FurnitureRoutes() {
 
   furnitureRouter.use(playfabMiddleware);
 
+  // Warn: I'm using only post method because the frontend is made using Unity C# and the developer can't use put method.
   furnitureRouter.get("/api/v1/furniture/:id", getFurnitureController);
   furnitureRouter.post("/api/v1/furniture", uploadFurniture, postFurnitureController);
   furnitureRouter.get("/api/v1/furnitures", getFurnituresController);
   furnitureRouter.delete("/api/v1/furniture/:id", deleteFurnitureController);
   furnitureRouter.post("/api/v1/furniture/:id/file", uploadFurnitureFile, patchFurnitureFileController);
   furnitureRouter.post("/api/v1/furniture/:id/thumbnail", uploadFurnitureThumbnail, patchFurnitureThumbnailController);
+  furnitureRouter.post("/api/v1/furniture/:id/owner", patchFurnitureAddOwnerController);
 
   return furnitureRouter;
 }

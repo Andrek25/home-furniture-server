@@ -1,7 +1,9 @@
 import { type RequestHandler } from "express";
 import {
+  addFurnitureOwner,
   deleteFurnitureById,
   getFurnitureById,
+  getFurnitureOwners,
   getFurnituresByOwnerId,
   replaceFurnitureFile,
   replaceFurnitureThumbnail,
@@ -139,6 +141,41 @@ export const patchFurnitureThumbnailController: RequestHandler<{
       return;
     }
     await replaceFurnitureThumbnail(furniture, req.file.filename);
+  } catch (error) {
+    console.error(error);
+    res.sendStatus(500);
+    return;
+  }
+  res.sendStatus(200);
+};
+
+export const patchFurnitureAddOwnerController: RequestHandler<
+  { id: string },
+  any,
+  { ownerId: string }
+> = async (req, res) => {
+  const id = Number(req.params.id);
+  const { ownerId } = req.body;
+  if (Number.isNaN(id)) {
+    res.status(400).send("You must provide a valid id");
+    return;
+  }
+  const playfab = (req as any).playfab;
+  try {
+    const furnitureOwners = await getFurnitureOwners(id, { ownerId: playfab.id });
+    if (!furnitureOwners) {
+      res.status(404).send("Furniture not found or you don't own it");
+      return;
+    }
+    if (furnitureOwners.includes(ownerId)) {
+      res.status(400).send("That user already owns this furniture");
+      return;
+    }
+    const result = await addFurnitureOwner(id, ownerId);
+    if (!result) {
+      res.status(400).send("Failed to add owner");
+      return;
+    }
   } catch (error) {
     console.error(error);
     res.sendStatus(500);

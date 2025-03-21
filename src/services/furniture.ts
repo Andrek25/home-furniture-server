@@ -217,3 +217,53 @@ export async function replaceFurnitureThumbnail(
     .where("id", "=", oldFurniture.id)
     .executeTakeFirst();
 }
+
+export async function getFurnitureOwners(
+  furnitureId: number,
+  options?: { ownerId?: string }
+) {
+  const { ownerId } = options || {};
+
+  if (ownerId) {
+    const furniture = await getFurnitureById(furnitureId, { ownerId });
+    if (!furniture) return undefined;
+  }
+
+  const furnitureOwners = await db
+    .selectFrom("furniture_owner")
+    .select(["owner_id"])
+    .where("furniture_id", "=", furnitureId)
+    .execute()
+    .then((result) => result.map((row) => row.owner_id));
+
+  return furnitureOwners.length > 0 ? furnitureOwners : undefined;
+}
+
+export async function addFurnitureOwner(
+  furnitureId: number,
+  ownerId: string,
+  options?: { checkIfExists?: boolean }
+) {
+  const { checkIfExists } = options || {};
+
+  if (checkIfExists) {
+    const existingOwner = await db
+      .selectFrom("furniture_owner")
+      .select("id")
+      .where("furniture_id", "=", furnitureId)
+      .where("owner_id", "=", ownerId)
+      .executeTakeFirst();
+
+    if (existingOwner) {
+      return undefined;
+    }
+  }
+
+  return db
+    .insertInto("furniture_owner")
+    .values({
+      furniture_id: furnitureId,
+      owner_id: ownerId,
+    })
+    .executeTakeFirst();
+}

@@ -17,6 +17,7 @@ app.use(
   })
 );
 app.use(morgan(ENV.PROD ? "combined" : "dev"));
+app.use(express.json());
 
 app.use(express.static(PUBLIC_PATH));
 
