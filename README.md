@@ -10,7 +10,7 @@ Get all furnitures.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 ### Response
 
@@ -41,7 +41,7 @@ Get a furniture by id.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 ### Response
 
@@ -57,7 +57,7 @@ Upload a new furniture.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 - Content-Type: multipart/form-data
 
 Body:
@@ -87,7 +87,7 @@ Delete a furniture by id.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 ### Response
 
@@ -106,7 +106,7 @@ Replace the furniture zip file.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 - Content-Type: multipart/form-data
 
 Body:
@@ -134,7 +134,7 @@ Replace the furniture thumbnail.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 - Content-Type: multipart/form-data
 
 Body:
@@ -171,7 +171,7 @@ Add a user as owner of a furniture.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 Body:
 
@@ -197,7 +197,7 @@ Abandon the ownership of a furniture.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 ### Response
 
@@ -213,7 +213,7 @@ Get the owners of a furniture.
 
 Headers:
 
-- x-playfab-auth-token: PlayFab authentication token
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
 
 ### Response
 
