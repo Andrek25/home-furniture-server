@@ -183,26 +183,17 @@ Body:
 
 ## DELETE api/v1/furniture/:id/owner
 
-Remove a user as owner of a furniture.
+Abandon the ownership of a furniture.
 
 - You must own the furniture.
-- You can remove yourself as owner if you don't want to own the furniture anymore.
-- You can remove other users as owner.
+- The furniture will be deleted if there are no more owners.
+- You cannot remove other users as owner.
 
 ### Request
 
 Headers:
 
 - x-playfab-auth-token: PlayFab authentication token
-
-Body:
-
-```json
-{
-  "ownerId": <user id>, // The user id to remove as owner.
-  "removeIfEmpty": <boolean> // Remove the furniture if there are no more owners. Default: false (optional).
-}
-```
 
 ### Response
 

@@ -185,13 +185,8 @@ export const patchFurnitureAddOwnerController: RequestHandler<
   res.sendStatus(200);
 };
 
-export const deleteFurnitureRemoveOwnerController: RequestHandler<
-  { id: string },
-  any,
-  { ownerId: string, removeIfEmpty?: boolean }
-> = async (req, res) => {
+export const deleteFurnitureAbandonOwnerController: RequestHandler<{ id: string }> = async (req, res) => {
   const id = Number(req.params.id);
-  const { ownerId, removeIfEmpty } = req.body;
   if (Number.isNaN(id)) {
     res.status(400).send("You must provide a valid id");
     return;
@@ -203,16 +198,12 @@ export const deleteFurnitureRemoveOwnerController: RequestHandler<
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
-    if (!furnitureOwners.includes(ownerId)) {
-      res.status(400).send("That user doesn't own this furniture");
-      return;
-    }
-    const result = await removeFurnitureOwner(id, ownerId);
+    const result = await removeFurnitureOwner(id, playfab.id);
     if (!result) {
-      res.status(400).send("Failed to remove owner");
+      res.status(400).send("Failed to abandon ownership");
       return;
     }
-    if (removeIfEmpty && furnitureOwners.length === 1) {
+    if (furnitureOwners.length <= 1) {
       await deleteFurnitureById(id);
     }
   } catch (error) {
