@@ -5,6 +5,7 @@ interface Env {
   PORT: number;
   PLAYFAB_TITLE_ID: string;
   PLAYFAB_DEVELOPER_SECRET_KEY: string;
+  DISK_ROOT_PATH: string;
 }
 
 const NODE_ENV = <Env["NODE_ENV"]>process.env.NODE_ENV || "development";
@@ -16,4 +17,5 @@ export const ENV: Env = {
   PORT: Number(process.env.PORT) || 4_000,
   PLAYFAB_TITLE_ID: process.env.PLAYFAB_TITLE_ID || "",
   PLAYFAB_DEVELOPER_SECRET_KEY: process.env.PLAYFAB_DEVELOPER_SECRET_KEY || "",
+  DISK_ROOT_PATH: process.env.DISK_ROOT_PATH || "/var/furniture-server",
 };

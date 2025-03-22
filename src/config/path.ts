@@ -1,7 +1,8 @@
 import path from "node:path";
 import fs from "node:fs";
+import { ENV } from "./env";
 
-export const ROOT_PATH = path.resolve("/var/furniture-server");
+export const ROOT_PATH = path.resolve(ENV.DISK_ROOT_PATH);
 
 export const PUBLIC_PATH = path.join(ROOT_PATH, "public");
 
