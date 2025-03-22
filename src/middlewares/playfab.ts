@@ -10,7 +10,7 @@ export const playfabMiddleware: RequestHandler = async (req, res, next) => {
   const token = Array.isArray(headerToken) ? headerToken[0] : headerToken;
   try {
     const result = await validatePlayFabToken(token);
-    const id = result.data.UserInfo?.TitleInfo?.TitlePlayerAccount?.Id;
+    const id = result.data.UserInfo?.PlayFabId;
     if (!id) {
       res.sendStatus(401);
       return;
