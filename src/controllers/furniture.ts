@@ -14,6 +14,7 @@ import path from "node:path";
 import { FURNITURE_PATH } from "../config/path";
 import { type UploadedFiles } from "../config/multer";
 import { deleteFile } from "../utils/file";
+import { checkIfPlayFabIdExists } from "../services/playfab";
 
 export const getFurnitureController: RequestHandler<{ id: string }> = async (
   req,
@@ -168,8 +169,12 @@ export const patchFurnitureAddOwnerController: RequestHandler<
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
+    if (!(await checkIfPlayFabIdExists(ownerId))) {
+      res.status(404).send("That user does not exist");
+      return;
+    }
     if (furnitureOwners.includes(ownerId)) {
-      res.status(400).send("That user already owns this furniture");
+      res.status(409).send("That user already owns this furniture");
       return;
     }
     const result = await addFurnitureOwner(id, ownerId);

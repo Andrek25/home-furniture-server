@@ -34,3 +34,26 @@ export async function validatePlayFabToken(
     );
   });
 }
+
+export async function checkIfPlayFabIdExists(
+  playfabId: string
+): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    PlayFabServer.GetUserAccountInfo(
+      { PlayFabId: playfabId },
+      (error, result) => {
+        if (error) {
+          let errorMessage = error.errorMessage;
+          if (error.errorDetails && error.errorDetails.PlayFabId) {
+            errorMessage += ` - ${error.errorDetails.PlayFabId}`;
+          }
+          console.error(errorMessage);
+          resolve(false);
+          return;
+        }
+        // const playfabId = result.data.UserInfo?.PlayFabId;
+        resolve(true);
+      }
+    );
+  });
+}

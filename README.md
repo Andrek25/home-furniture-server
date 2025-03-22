@@ -161,7 +161,11 @@ Raw image file.
 
 ## POST api/v1/furniture/:id/owner
 
-Add a user as owner of a furniture (you must own it).
+Add a user as owner of a furniture.
+
+- You must own the furniture.
+- The user must exist.
+- The user is a Master player account ID (It is the same thing as a PlayFab ID for classic APIs).
 
 ### Request
 
