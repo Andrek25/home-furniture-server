@@ -181,6 +181,69 @@ namespace FurnitureNetwork
         errorCallback?.Invoke(webRequest.error);
       }
     }
+
+    private IEnumerator GetFurnitureOwners(int id, Action<GetFurnitureOwnersMessage> callback = null, Action<string> errorCallback = null)
+    {
+      using UnityWebRequest webRequest = UnityWebRequest.Get($"{apiUri}/furniture/{id}/owners");
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        var result = JsonUtility.FromJson<GetFurnitureOwnersMessage>(webRequest.downloadHandler.text);
+        callback?.Invoke(result);
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error);
+      }
+    }
+
+    private IEnumerator AddFurnitureOwner(int id, string ownerPlayFabId, Action callback = null, Action<string> errorCallback = null)
+    {
+      using UnityWebRequest webRequest = new($"{apiUri}/furniture/{id}/owner", "POST")
+      {
+        downloadHandler = new DownloadHandlerBuffer(),
+        uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes("{\"ownerId\":\"" + ownerPlayFabId + "\"}")),
+      };
+      webRequest.SetRequestHeader("content-type", "application/json");
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        callback?.Invoke();
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error + " - " + webRequest.downloadHandler.text);
+      }
+    }
+
+    private IEnumerator AbandonFurnitureOwner(int id, Action callback = null, Action<string> errorCallback = null)
+    {
+      using UnityWebRequest webRequest = UnityWebRequest.Delete($"{apiUri}/furniture/{id}/owner");
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        callback?.Invoke();
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error);
+      }
+    }
+  }
+
+  [Serializable]
+  public class GetFurnitureOwnersMessage
+  {
+    public string[] owners;
   }
 
   [Serializable]
