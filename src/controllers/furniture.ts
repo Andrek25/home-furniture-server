@@ -170,7 +170,7 @@ export const patchFurnitureAddOwnerController: RequestHandler<
       return;
     }
     if (!(await checkIfPlayFabIdExists(ownerId))) {
-      res.status(404).send("That user does not exist");
+      res.status(404).send("That user does not exist or it is invalid");
       return;
     }
     if (furnitureOwners.includes(ownerId)) {
