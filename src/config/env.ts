@@ -19,3 +19,7 @@ export const ENV: Env = {
   PLAYFAB_DEVELOPER_SECRET_KEY: process.env.PLAYFAB_DEVELOPER_SECRET_KEY || "",
   DISK_ROOT_PATH: process.env.DISK_ROOT_PATH || "/var/furniture-server",
 };
+
+if (ENV.DEV) {
+  console.log(ENV);
+}
