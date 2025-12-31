@@ -226,3 +226,34 @@ Headers:
   ]
 }
 ```
+
+## POST api/v1/duplicate-furniture/:id
+
+Duplicate a furniture by id, this will create a new furniture with the same file and thumbnail (if not provided).
+
+- You must own the furniture.
+- The furniture duplicated will save a reference to the original furniture.
+- The thumbnail is optional and will use the original thumbnail if not provided.
+
+### Request
+
+Headers:
+
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
+- Content-Type: multipart/form-data
+
+Body:
+
+```json
+{
+  "thumbnail": <file> // The thumbnail image raw file.
+}
+```
+
+### Response
+
+```json
+{
+  "id": <furniture id> // The id of the new furniture.
+}
+```

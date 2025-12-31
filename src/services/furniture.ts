@@ -105,22 +105,38 @@ export async function deleteFurnitureById(
   const furniture = await query.executeTakeFirst();
 
   if (furniture) {
-    fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {
-      if (err) {
-        console.error(`Error deleting file ${furniture.local_name}: ${err}`);
-      }
-    });
-    if (furniture.thumbnail) {
-      fs.unlink(
-        path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
-        (err) => {
-          if (err) {
-            console.error(
-              `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
-            );
-          }
+    const furnituresLocalName = await db
+      .selectFrom("furniture")
+      .select(["local_name"])
+      .where("local_name", "=", furniture.local_name)
+      .execute();
+
+    if (furnituresLocalName.length <= 0) {
+      fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {
+        if (err) {
+          console.error(`Error deleting file ${furniture.local_name}: ${err}`);
         }
-      );
+      });
+    }
+    if (furniture.thumbnail) {
+      const furnitureThumbnails = await db
+        .selectFrom("furniture")
+        .select(["thumbnail"])
+        .where("thumbnail", "=", furniture.thumbnail)
+        .execute();
+
+      if (furnitureThumbnails.length <= 0) {
+        fs.unlink(
+          path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
+          (err) => {
+            if (err) {
+              console.error(
+                `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
+              );
+            }
+          }
+        );
+      }
     }
   }
 

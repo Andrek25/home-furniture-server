@@ -15,6 +15,7 @@ import { FURNITURE_PATH } from "../config/path";
 import { type UploadedFiles } from "../config/multer";
 import { deleteFile } from "../utils/file";
 import { checkIfPlayFabIdExists } from "../services/playfab";
+import { removeThumbnailURL } from "../utils/thumbnails";
 
 export const getFurnitureController: RequestHandler<{ id: string }> = async (
   req,
@@ -239,5 +240,44 @@ export const getFurnitureOwnersController: RequestHandler<{ id: string }> = asyn
   } catch (error) {
     console.error(error);
     res.sendStatus(500);
+  }
+};
+
+export const postDuplicateFurnitureController: RequestHandler = async (req, res) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) {
+    res.status(400).send("You must provide a valid id");
+    return;
+  }
+
+  const playfab = (req as any).playfab;
+  
+  try {
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    if (!furniture) {
+      if (req.file) {
+        deleteFile(path.join(req.file.path));
+      }
+      res.status(404).send("Furniture not found or you don't own it");
+      return;
+    }
+    const originalThumbnail = furniture.thumbnail
+      ? removeThumbnailURL(furniture.thumbnail)
+      : undefined;
+    const thumbnail = req.file?.filename || originalThumbnail;
+    const furnitureCreated = await saveFurniture(
+      playfab.id,
+      furniture.local_name,
+      furniture.file_name,
+      thumbnail
+    );
+    if (!furnitureCreated) {
+      throw new Error("Failed to duplicate furniture");
+    }
+    res.status(200).json({ id: furnitureCreated.id });
+  } catch (error) {
+    console.error(error);
+    res.sendStatus(500);
+    return;
   }
 };

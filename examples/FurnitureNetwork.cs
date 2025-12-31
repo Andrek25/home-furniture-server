@@ -119,6 +119,35 @@ namespace FurnitureNetwork
         errorCallback?.Invoke(webRequest.error);
       }
     }
+
+    public IEnumerator DuplicateFurniture(string id, string thumbnailPath = null, Action<UploadFurnitureMessage> callback = null, Action<string> errorCallback = null)
+    {
+      var form = new WWWForm();
+      form.AddBinaryData("file", fileData, fileName, $"application/{fileExtension}");
+      if (thumbnailPath != null)
+      {
+        byte[] thumbnailData = System.IO.File.ReadAllBytes(thumbnailPath);
+        string thumbnailName = System.IO.Path.GetFileName(thumbnailPath);
+        string thumbnailExtension = System.IO.Path.GetExtension(thumbnailPath).TrimStart('.');
+        form.AddBinaryData("thumbnail", thumbnailData, thumbnailName, $"image/{thumbnailExtension}");
+      }
+
+      using UnityWebRequest webRequest = UnityWebRequest.Post($"{apiUri}/api/v1/duplicate-furniture/{id}", form);
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        UploadFurnitureMessage result = JsonUtility.FromJson<UploadFurnitureMessage>(webRequest.downloadHandler.text);
+        callback?.Invoke(result);
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error);
+      }
+    }
+
     private IEnumerator DeleteFurniture(string id, Action callback = null, Action<string> errorCallback = null)
     {
       using UnityWebRequest webRequest = UnityWebRequest.Delete($"{apiUri}/api/v1/furniture/{id}");
