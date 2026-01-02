@@ -11,7 +11,7 @@ import {
   saveFurniture,
 } from "../services/furniture";
 import path from "node:path";
-import { FURNITURE_PATH } from "../config/path";
+import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
 import { type UploadedFiles } from "../config/multer";
 import { deleteFile } from "../utils/file";
 import { checkIfPlayFabIdExists } from "../services/playfab";
@@ -279,5 +279,35 @@ export const postDuplicateFurnitureController: RequestHandler = async (req, res)
     console.error(error);
     res.sendStatus(500);
     return;
+  }
+};
+
+export const getFurnitureThumbnailController: RequestHandler<{ id: string }> = async (
+  req,
+  res
+) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) {
+    res.status(400).send("You must provide a valid id");
+    return;
+  }
+  const playfab = (req as any).playfab;
+  try {
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    if (!furniture) {
+      res.status(404).send("Furniture not found or you don't own it");
+      return;
+    }
+    const thumbnail = furniture.thumbnail
+      ? removeThumbnailURL(furniture.thumbnail)
+      : undefined;
+    if (!thumbnail) {
+      res.status(404).send("Furniture has no thumbnail");
+      return;
+    }
+    res.sendFile(path.join(THUMBNAIL_PATH, thumbnail));
+  } catch (error) {
+    console.error(error);
+    res.sendStatus(500);
   }
 };

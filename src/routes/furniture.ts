@@ -10,6 +10,7 @@ import {
   deleteFurnitureAbandonOwnerController,
   getFurnitureOwnersController,
   postDuplicateFurnitureController,
+  getFurnitureThumbnailController,
 } from "../controllers/furniture";
 import {
   uploadFurniture,
@@ -36,6 +37,7 @@ export function FurnitureRoutes() {
     furnitureRouter.post("/api/v1/furniture/:id/owner", patchFurnitureAddOwnerController);
     furnitureRouter.delete("/api/v1/furniture/:id/owner", deleteFurnitureAbandonOwnerController);
     furnitureRouter.get("/api/v1/furniture/:id/owners", getFurnitureOwnersController);
+    furnitureRouter.get("/api/v1/furniture/:id/thumbnail", getFurnitureThumbnailController);
   }
   return furnitureRouter;
 }

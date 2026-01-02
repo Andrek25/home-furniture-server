@@ -123,7 +123,6 @@ namespace FurnitureNetwork
     public IEnumerator DuplicateFurniture(string id, string thumbnailPath = null, Action<UploadFurnitureMessage> callback = null, Action<string> errorCallback = null)
     {
       var form = new WWWForm();
-      form.AddBinaryData("file", fileData, fileName, $"application/{fileExtension}");
       if (thumbnailPath != null)
       {
         byte[] thumbnailData = System.IO.File.ReadAllBytes(thumbnailPath);
@@ -140,6 +139,24 @@ namespace FurnitureNetwork
       if (webRequest.result == UnityWebRequest.Result.Success)
       {
         UploadFurnitureMessage result = JsonUtility.FromJson<UploadFurnitureMessage>(webRequest.downloadHandler.text);
+        callback?.Invoke(result);
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error);
+      }
+    }
+
+    public IEnumerator GetFurnitureThumbnail(string id, Action<byte[]> callback = null, Action<string> errorCallback = null)
+    {
+      using UnityWebRequest webRequest = UnityWebRequest.Get($"{apiUri}/api/v1/furniture/{id}/thumbnail");
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        byte[] result = webRequest.downloadHandler.data;
         callback?.Invoke(result);
       }
       else

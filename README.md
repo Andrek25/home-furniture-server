@@ -257,3 +257,20 @@ Body:
   "id": <furniture id> // The id of the new furniture.
 }
 ```
+
+## Get furniture thumbnail
+
+Get the thumbnail of a furniture by id.
+
+- You must own the furniture (for simplicity but read the second point).
+- Thumbnails are static and can be accessed without authentication by anyone.
+
+### Request
+
+Headers:
+
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
+
+### Response
+
+Raw image file.
