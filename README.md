@@ -159,50 +159,6 @@ Get a furniture thumbnail by id.
 
 Raw image file.
 
-## POST api/v1/furniture/:id/owner
-
-Add a user as owner of a furniture.
-
-- You must own the furniture.
-- The user must exist.
-- The user is a Master player account ID (It is the same thing as a PlayFab ID for classic APIs).
-
-### Request
-
-Headers:
-
-- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
-
-Body:
-
-```json
-{
-  "ownerId": <user id> // The user id to add as owner.
-}
-```
-
-### Response
-
-200 OK
-
-## DELETE api/v1/furniture/:id/owner
-
-Abandon the ownership of a furniture.
-
-- You must own the furniture.
-- The furniture will be deleted if there are no more owners.
-- You cannot remove other users as owner.
-
-### Request
-
-Headers:
-
-- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
-
-### Response
-
-200 OK
-
 ## GET api/v1/furniture/:id/owners
 
 Get the owners of a furniture.

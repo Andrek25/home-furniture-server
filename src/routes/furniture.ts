@@ -4,10 +4,8 @@ import {
   getFurnitureController,
   getFurnituresController,
   patchFurnitureFileController,
-  patchFurnitureAddOwnerController,
   patchFurnitureThumbnailController,
   postFurnitureController,
-  deleteFurnitureAbandonOwnerController,
   getFurnitureOwnersController,
   postDuplicateFurnitureController,
   getFurnitureThumbnailController,
@@ -34,8 +32,6 @@ export function FurnitureRoutes() {
     furnitureRouter.delete("/api/v1/furniture/:id", deleteFurnitureController);
     furnitureRouter.post("/api/v1/furniture/:id/file", uploadFurnitureFile, patchFurnitureFileController);
     furnitureRouter.post("/api/v1/furniture/:id/thumbnail", uploadFurnitureThumbnail, patchFurnitureThumbnailController);
-    furnitureRouter.post("/api/v1/furniture/:id/owner", patchFurnitureAddOwnerController);
-    furnitureRouter.delete("/api/v1/furniture/:id/owner", deleteFurnitureAbandonOwnerController);
     furnitureRouter.get("/api/v1/furniture/:id/owners", getFurnitureOwnersController);
     furnitureRouter.get("/api/v1/furniture/:id/thumbnail", getFurnitureThumbnailController);
   }
