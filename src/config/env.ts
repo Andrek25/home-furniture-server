@@ -6,6 +6,7 @@ interface Env {
   PLAYFAB_TITLE_ID: string;
   PLAYFAB_DEVELOPER_SECRET_KEY: string;
   DISK_ROOT_PATH: string;
+  DUPLICATE_TOKEN_EXPIRY: number;
 }
 
 const NODE_ENV = <Env["NODE_ENV"]>process.env.NODE_ENV || "development";
@@ -18,6 +19,7 @@ export const ENV: Env = {
   PLAYFAB_TITLE_ID: process.env.PLAYFAB_TITLE_ID || "",
   PLAYFAB_DEVELOPER_SECRET_KEY: process.env.PLAYFAB_DEVELOPER_SECRET_KEY || "",
   DISK_ROOT_PATH: process.env.DISK_ROOT_PATH || "/var/furniture-server",
+  DUPLICATE_TOKEN_EXPIRY: Number(process.env.DUPLICATE_TOKEN_EXPIRY) || 10,
 };
 
 if (ENV.DEV) {

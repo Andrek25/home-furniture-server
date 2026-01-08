@@ -1,12 +1,14 @@
 import { Kysely, SqliteDialect } from "kysely";
 import SQLite from "better-sqlite3";
+import { initPaths, ROOT_PATH } from "./path";
 import { FurnitureTable } from "../db/tables/furniture";
 import { FurnitureOwnerTable } from "../db/tables/furniture-owner";
-import { initPaths, ROOT_PATH } from "./path";
+import { DuplicateTokenTable } from "../db/tables/duplicate-token";
 
 export interface DatabaseSchema {
   furniture: FurnitureTable;
   furniture_owner: FurnitureOwnerTable;
+  duplicate_token: DuplicateTokenTable;
 }
 
 export let dialect: SqliteDialect;

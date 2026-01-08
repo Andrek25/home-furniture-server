@@ -183,11 +183,33 @@ Headers:
 }
 ```
 
-## POST api/v1/duplicate-furniture/:id
+## GET api/v1/duplicate-furniture/:id
 
-Duplicate a furniture by id, this will create a new furniture with the same file and thumbnail (if not provided).
+Duplicate a furniture by id, this will generate a new token for the duplicated furniture, so other users can claim it.
 
 - You must own the furniture.
+- The furniture will be created when the token is claimed.
+- The owner can not claim their own token.
+
+### Request
+
+Headers:
+
+- X-PLAYFAB-AUTH-TOKEN: PlayFab authentication token
+
+### Response
+
+```json
+{
+  "token": <token> // The token for the duplicated furniture.
+}
+```
+
+## POST api/v1/duplicate-furniture/:token
+
+Claim a duplicated furniture by token, this will create a new furniture with the same file and thumbnail (if not provided).
+
+- The token can be used only once.
 - The furniture duplicated will save a reference to the original furniture.
 - The thumbnail is optional and will use the original thumbnail if not provided.
 

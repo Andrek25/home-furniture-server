@@ -120,7 +120,25 @@ namespace FurnitureNetwork
       }
     }
 
-    public IEnumerator DuplicateFurniture(string id, string thumbnailPath = null, Action<UploadFurnitureMessage> callback = null, Action<string> errorCallback = null)
+    public IEnumerator DuplicateFurniture(string id, Action<DuplicateTokenMessage> callback = null, Action<string> errorCallback = null)
+    {
+      using UnityWebRequest webRequest = UnityWebRequest.Get($"{apiUri}/api/v1/duplicate-furniture/{id}");
+      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+      yield return webRequest.SendWebRequest();
+
+      if (webRequest.result == UnityWebRequest.Result.Success)
+      {
+        var result = JsonUtility.FromJson<DuplicateTokenMessage>(webRequest.downloadHandler.text);
+        callback?.Invoke(result);
+      }
+      else
+      {
+        errorCallback?.Invoke(webRequest.error);
+      }
+    }
+
+    public IEnumerator ClaimDuplicateFurniture(string token, string thumbnailPath = null, Action<UploadFurnitureMessage> callback = null, Action<string> errorCallback = null)
     {
       var form = new WWWForm();
       if (thumbnailPath != null)
@@ -131,7 +149,7 @@ namespace FurnitureNetwork
         form.AddBinaryData("thumbnail", thumbnailData, thumbnailName, $"image/{thumbnailExtension}");
       }
 
-      using UnityWebRequest webRequest = UnityWebRequest.Post($"{apiUri}/api/v1/duplicate-furniture/{id}", form);
+      using UnityWebRequest webRequest = UnityWebRequest.Post($"{apiUri}/api/v1/duplicate-furniture/{token}", form);
       webRequest.SetRequestHeader("x-playfab-auth-token", token);
 
       yield return webRequest.SendWebRequest();
@@ -277,5 +295,11 @@ namespace FurnitureNetwork
   public class UploadFurnitureMessage
   {
     [SerializeField] public string id;
+  }
+
+  [Serializable]
+  public class DuplicateTokenMessage
+  {
+    [SerializeField] public string token;
   }
 }

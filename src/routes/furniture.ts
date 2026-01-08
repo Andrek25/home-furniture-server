@@ -9,6 +9,7 @@ import {
   getFurnitureOwnersController,
   postDuplicateFurnitureController,
   getFurnitureThumbnailController,
+  getDuplicateFurnitureController
 } from "../controllers/furniture";
 import {
   uploadFurniture,
@@ -27,7 +28,8 @@ export function FurnitureRoutes() {
     // Warn: I'm using only post method because the frontend is made using Unity C# and the developer can't use put method.
     furnitureRouter.get("/api/v1/furniture/:id", getFurnitureController);
     furnitureRouter.post("/api/v1/furniture", uploadFurniture, postFurnitureController);
-    furnitureRouter.post("/api/v1/duplicate-furniture/:id", uploadFurnitureThumbnail, postDuplicateFurnitureController);
+    furnitureRouter.get("/api/v1/duplicate-furniture/:id", getDuplicateFurnitureController);
+    furnitureRouter.post("/api/v1/duplicate-furniture/:token", uploadFurnitureThumbnail, postDuplicateFurnitureController);
     furnitureRouter.get("/api/v1/furnitures", getFurnituresController);
     furnitureRouter.delete("/api/v1/furniture/:id", deleteFurnitureController);
     furnitureRouter.post("/api/v1/furniture/:id/file", uploadFurnitureFile, patchFurnitureFileController);
