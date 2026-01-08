@@ -156,10 +156,9 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   res.sendStatus(200);
 };
 
-export const getFurnitureOwnersController: RequestHandler<{ id: string }> = async (
-  req,
-  res
-) => {
+export const getFurnitureOwnersController: RequestHandler<{
+  id: string;
+}> = async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) {
     res.status(400).send("You must provide a valid id");
@@ -167,7 +166,9 @@ export const getFurnitureOwnersController: RequestHandler<{ id: string }> = asyn
   }
   const playfab = (req as any).playfab;
   try {
-    const furnitureOwners = await getFurnitureOwners(id, { ownerId: playfab.id });
+    const furnitureOwners = await getFurnitureOwners(id, {
+      ownerId: playfab.id,
+    });
     if (!furnitureOwners) {
       res.status(404).send("Furniture not found or you don't own it");
       return;
@@ -179,7 +180,10 @@ export const getFurnitureOwnersController: RequestHandler<{ id: string }> = asyn
   }
 };
 
-export const postDuplicateFurnitureController: RequestHandler = async (req, res) => {
+export const postDuplicateFurnitureController: RequestHandler = async (
+  req,
+  res
+) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) {
     res.status(400).send("You must provide a valid id");
@@ -187,7 +191,7 @@ export const postDuplicateFurnitureController: RequestHandler = async (req, res)
   }
 
   const playfab = (req as any).playfab;
-  
+
   try {
     const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
@@ -218,10 +222,9 @@ export const postDuplicateFurnitureController: RequestHandler = async (req, res)
   }
 };
 
-export const getFurnitureThumbnailController: RequestHandler<{ id: string }> = async (
-  req,
-  res
-) => {
+export const getFurnitureThumbnailController: RequestHandler<{
+  id: string;
+}> = async (req, res) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) {
     res.status(400).send("You must provide a valid id");
