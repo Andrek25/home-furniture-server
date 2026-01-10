@@ -209,7 +209,7 @@ Headers:
 
 Claim a duplicated furniture by token, this will create a new furniture with the same file and thumbnail (if not provided).
 
-- The token can be used only once.
+- The token can be used as many times as you want.
 - The furniture duplicated will save a reference to the original furniture.
 - The thumbnail is optional and will use the original thumbnail if not provided.
 
