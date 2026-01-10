@@ -220,8 +220,8 @@ export const postDuplicateFurnitureController: RequestHandler<{
     return;
   }
   const tokenData = await getDuplicateToken(token);
-  if (!tokenData || tokenData.expires < Date.now() || tokenData.consumed_by) {
-    res.status(400).send("Invalid, expired, or already used token");
+  if (!tokenData) {
+    res.status(400).send("Invalid token");
     return;
   }
 
