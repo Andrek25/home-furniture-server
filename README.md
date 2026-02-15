@@ -189,7 +189,6 @@ Duplicate a furniture by id, this will generate a new token for the duplicated f
 
 - You must own the furniture.
 - The furniture will be created when the token is claimed.
-- The owner can not claim their own token.
 
 ### Request
 

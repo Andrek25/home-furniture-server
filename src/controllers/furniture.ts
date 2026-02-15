@@ -228,10 +228,6 @@ export const postDuplicateFurnitureController: RequestHandler<{
   const playfab = (req as any).playfab;
 
   try {
-    if (tokenData.owner_id === playfab.id) {
-      res.status(400).send("Owner cannot consume their own token");
-      return;
-    }
     const furniture = await getFurnitureById(tokenData.furniture_id, {
       ownerId: tokenData.owner_id,
     });
