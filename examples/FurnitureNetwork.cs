@@ -150,7 +150,7 @@ namespace FurnitureNetwork
       }
 
       using UnityWebRequest webRequest = UnityWebRequest.Post($"{apiUri}/api/v1/duplicate-furniture/{token}", form);
-      webRequest.SetRequestHeader("x-playfab-auth-token", token);
+      webRequest.SetRequestHeader("x-playfab-auth-token", this.token);
 
       yield return webRequest.SendWebRequest();
 
