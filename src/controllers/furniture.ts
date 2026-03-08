@@ -31,7 +31,7 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    const furniture = await getFurnitureById(id);
     if (!furniture) {
       res.status(404).send("Furniture not found");
       return;
@@ -118,7 +118,7 @@ export const patchFurnitureFileController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    const furniture = await getFurnitureById(id);
     if (!furniture) {
       deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found or you don't own it");
@@ -147,7 +147,7 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    const furniture = await getFurnitureById(id);
     if (!furniture) {
       deleteFile(path.join(req.file.path));
       res.status(404).send("Furniture not found or you don't own it");
@@ -170,13 +170,10 @@ export const getFurnitureOwnersController: RequestHandler<{
     res.status(400).send("You must provide a valid id");
     return;
   }
-  const playfab = (req as any).playfab;
   try {
-    const furnitureOwners = await getFurnitureOwners(id, {
-      ownerId: playfab.id,
-    });
+    const furnitureOwners = await getFurnitureOwners(id);
     if (!furnitureOwners) {
-      res.status(404).send("Furniture not found or you don't own it");
+      res.status(404).send("Furniture not found");
       return;
     }
     res.send({ furnitureId: id, owners: furnitureOwners });
@@ -197,7 +194,7 @@ export const getDuplicateFurnitureController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    const furniture = await getFurnitureById(id);
     if (!furniture) {
       res.status(404).send("Furniture not found or you don't own it");
       return;
@@ -268,11 +265,10 @@ export const getFurnitureThumbnailController: RequestHandler<{
     res.status(400).send("You must provide a valid id");
     return;
   }
-  const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
+    const furniture = await getFurnitureById(id);
     if (!furniture) {
-      res.status(404).send("Furniture not found or you don't own it");
+      res.status(404).send("Furniture not found");
       return;
     }
     const thumbnail = furniture.thumbnail

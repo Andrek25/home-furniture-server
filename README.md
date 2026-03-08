@@ -35,8 +35,6 @@ Headers:
 
 Get a furniture by id.
 
-- You must own the furniture.
-
 ### Request
 
 Headers:
@@ -163,8 +161,6 @@ Raw image file.
 
 Get the owners of a furniture.
 
-- You must own the furniture.
-
 ### Request
 
 Headers:
@@ -239,8 +235,7 @@ Body:
 
 Get the thumbnail of a furniture by id.
 
-- You must own the furniture (for simplicity but read the second point).
-- Thumbnails are static and can be accessed without authentication by anyone.
+- Anyone can access thumbnails without authentication.
 
 ### Request
 
