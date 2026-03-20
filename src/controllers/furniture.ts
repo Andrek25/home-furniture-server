@@ -5,6 +5,7 @@ import {
   consumeDuplicateToken,
 } from "../services/duplicate-token";
 import {
+  copyThumbnail,
   deleteFurnitureById,
   getFurnitureById,
   getFurnitureOwners,
@@ -235,10 +236,15 @@ export const postDuplicateFurnitureController: RequestHandler<{
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
-    const originalThumbnail = furniture.thumbnail
-      ? removeThumbnailURL(furniture.thumbnail)
-      : undefined;
-    const thumbnail = req.file?.filename || originalThumbnail;
+
+    let thumbnail: string | undefined;
+    if (req.file) {
+      thumbnail = req.file.filename;
+    } else if (furniture.thumbnail) {
+      const originalThumbnailName = removeThumbnailURL(furniture.thumbnail);
+      thumbnail = await copyThumbnail(originalThumbnailName);
+    }
+
     const furnitureCreated = await saveFurniture(
       playfab.id,
       furniture.local_name,

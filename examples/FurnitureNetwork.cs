@@ -148,6 +148,7 @@ namespace FurnitureNetwork
         string thumbnailExtension = System.IO.Path.GetExtension(thumbnailPath).TrimStart('.');
         form.AddBinaryData("thumbnail", thumbnailData, thumbnailName, $"image/{thumbnailExtension}");
       }
+      // If thumbnailPath is null, a copy of the original furniture's thumbnail is created.
 
       using UnityWebRequest webRequest = UnityWebRequest.Post($"{apiUri}/api/v1/duplicate-furniture/{token}", form);
       webRequest.SetRequestHeader("x-playfab-auth-token", this.token);

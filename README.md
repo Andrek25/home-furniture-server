@@ -20,16 +20,19 @@ Headers:
     {
       "id": 1,
       "file_name": "file.zip",
-      "thumbnail": "/thumbnails/image.png"
+      "thumbnail": "/thumbnails/abc123.png"
     },
     {
       "id": 2,
       "file_name": "file.zip",
-      "thumbnail": "/thumbnails/image.png"
+      "thumbnail": "/thumbnails/def456.png"
     }
   ]
 }
 ```
+
+> [!NOTE]
+> Each furniture has its own unique thumbnail. Even if two furnitures have the same image, their thumbnail paths will be different.
 
 ## GET api/v1/furnitures/:id
 
@@ -205,8 +208,8 @@ Headers:
 Claim a duplicated furniture by token, this will create a new furniture with the same file and thumbnail (if not provided).
 
 - The token can be used as many times as you want.
-- The furniture duplicated will save a reference to the original furniture.
-- The thumbnail is optional and will use the original thumbnail if not provided.
+- The thumbnail is optional. If not provided, a copy of the original thumbnail is created for the new furniture.
+- Each furniture has its own unique thumbnail file.
 
 ### Request
 

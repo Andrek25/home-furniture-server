@@ -2,6 +2,7 @@ import { db } from "../config/db";
 import path from "node:path";
 import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { Furniture } from "../db/tables/furniture";
 import { generateThumbnailURL } from "../utils/thumbnails";
 
@@ -105,38 +106,22 @@ export async function deleteFurnitureById(
   const furniture = await query.executeTakeFirst();
 
   if (furniture) {
-    const furnituresLocalName = await db
-      .selectFrom("furniture")
-      .select(["local_name"])
-      .where("local_name", "=", furniture.local_name)
-      .execute();
-
-    if (furnituresLocalName.length <= 0) {
-      fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {
-        if (err) {
-          console.error(`Error deleting file ${furniture.local_name}: ${err}`);
-        }
-      });
-    }
-    if (furniture.thumbnail) {
-      const furnitureThumbnails = await db
-        .selectFrom("furniture")
-        .select(["thumbnail"])
-        .where("thumbnail", "=", furniture.thumbnail)
-        .execute();
-
-      if (furnitureThumbnails.length <= 0) {
-        fs.unlink(
-          path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
-          (err) => {
-            if (err) {
-              console.error(
-                `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
-              );
-            }
-          }
-        );
+    fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {
+      if (err) {
+        console.error(`Error deleting file ${furniture.local_name}: ${err}`);
       }
+    });
+    if (furniture.thumbnail) {
+      fs.unlink(
+        path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
+        (err) => {
+          if (err) {
+            console.error(
+              `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
+            );
+          }
+        }
+      );
     }
   }
 
@@ -177,56 +162,73 @@ export async function replaceFurnitureFile(
     .executeTakeFirst();
 }
 
+export async function copyThumbnail(sourceThumbnail: string): Promise<string> {
+  const ext = path.extname(sourceThumbnail);
+  const newThumbnailName = `${randomUUID()}${ext}`;
+  const sourcePath = path.join(THUMBNAIL_PATH, sourceThumbnail);
+  const destPath = path.join(THUMBNAIL_PATH, newThumbnailName);
+
+  await new Promise<void>((resolve, reject) => {
+    fs.copyFile(sourcePath, destPath, (err) => {
+      if (err) {
+        console.error(`Error copying thumbnail: ${err}`);
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+
+  return newThumbnailName;
+}
+
 export async function replaceFurnitureThumbnail(
   oldFurniture: Furniture,
   sourceLocalName: string
 ) {
-  let thumbnailURL = "";
+  const newThumbnailName = `${randomUUID()}${path.extname(sourceLocalName)}`;
+  const tempName = path.join(THUMBNAIL_PATH, sourceLocalName);
+  const newPath = path.join(THUMBNAIL_PATH, newThumbnailName);
 
   if (oldFurniture.thumbnail) {
-    const originalName = path.join(
+    const oldPath = path.join(
       THUMBNAIL_PATH,
       path.basename(oldFurniture.thumbnail)
     );
-    const tempName = path.join(THUMBNAIL_PATH, sourceLocalName);
-    const originalNameWithoutExt = path.join(
-      THUMBNAIL_PATH,
-      path.parse(oldFurniture.thumbnail).name
-    );
 
     await new Promise<void>((resolve, reject) => {
-      fs.unlink(originalName, (err) => {
+      fs.unlink(oldPath, (err) => {
         if (err) {
           console.error(
             `Error deleting file ${oldFurniture.thumbnail}: ${err}`
           );
-          reject(err);
         }
-        fs.rename(
-          tempName,
-          `${originalNameWithoutExt}${path.extname(sourceLocalName)}`,
-          (err) => {
-            if (err) {
-              console.error(
-                `Error renaming file ${oldFurniture.thumbnail}: ${err}`
-              );
-              reject(err);
-            }
-            resolve();
+        fs.rename(tempName, newPath, (err) => {
+          if (err) {
+            console.error(
+              `Error moving thumbnail file: ${err}`
+            );
+            reject(err);
+            return;
           }
-        );
+          resolve();
+        });
       });
     });
-    thumbnailURL = generateThumbnailURL(
-      `${path.parse(oldFurniture.thumbnail).name}${path.extname(
-        sourceLocalName
-      )}`
-    );
   } else {
-    thumbnailURL = generateThumbnailURL(sourceLocalName);
+    await new Promise<void>((resolve, reject) => {
+      fs.rename(tempName, newPath, (err) => {
+        if (err) {
+          console.error(`Error moving thumbnail file: ${err}`);
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+    });
   }
 
-  if (oldFurniture.thumbnail === thumbnailURL) return;
+  const thumbnailURL = generateThumbnailURL(newThumbnailName);
   await db
     .updateTable("furniture")
     .set("thumbnail", thumbnailURL)
