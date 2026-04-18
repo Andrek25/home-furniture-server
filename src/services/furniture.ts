@@ -1,10 +1,31 @@
-import { db } from "../config/db";
+import { db, DatabaseSchema } from "../config/db";
 import path from "node:path";
 import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Furniture } from "../db/tables/furniture";
-import { generateThumbnailURL } from "../utils/thumbnails";
+import {
+  generateThumbnailURL,
+  removeThumbnailURL,
+} from "../utils/thumbnails";
+import { deleteFile } from "../utils/file";
+import { Kysely, Transaction } from "kysely";
+
+type Executor = Kysely<DatabaseSchema> | Transaction<DatabaseSchema>;
+
+async function countFurnitureSharingLocalName(
+  executor: Executor,
+  localName: string,
+  excludeId: number
+): Promise<number> {
+  const result = await executor
+    .selectFrom("furniture")
+    .select((eb) => eb.fn.count("id").as("count"))
+    .where("local_name", "=", localName)
+    .where("id", "!=", excludeId)
+    .executeTakeFirstOrThrow();
+  return Number(result.count);
+}
 
 export async function getFurnitureById(
   id: number,
@@ -37,27 +58,66 @@ export async function saveFurniture(
 ) {
   const thumbnailURL = thumbnail ? generateThumbnailURL(thumbnail) : undefined;
 
-  const furniture = await db
-    .insertInto("furniture")
-    .values({
-      local_name: localName,
-      file_name: fileName,
-      thumbnail: thumbnailURL,
-    })
-    .returning("id")
-    .executeTakeFirst();
+  return await db.transaction().execute(async (trx) => {
+    const furniture = await trx
+      .insertInto("furniture")
+      .values({
+        local_name: localName,
+        file_name: fileName,
+        thumbnail: thumbnailURL,
+      })
+      .returning("id")
+      .executeTakeFirst();
 
-  if (!furniture) throw new Error("Failed to save furniture");
+    if (!furniture) throw new Error("Failed to save furniture");
 
-  await db
-    .insertInto("furniture_owner")
-    .values({
-      furniture_id: furniture.id,
-      owner_id: ownerId,
-    })
-    .execute();
+    await trx
+      .insertInto("furniture_owner")
+      .values({
+        furniture_id: furniture.id,
+        owner_id: ownerId,
+      })
+      .execute();
 
-  return furniture;
+    return furniture;
+  });
+}
+
+export async function saveFurnitureFromExisting(
+  ownerId: string,
+  source: Furniture,
+  providedThumbnailFilename?: string
+): Promise<{ id: number }> {
+  let thumbnailFilename: string | undefined;
+  let copiedThumbnail = false;
+
+  if (providedThumbnailFilename) {
+    thumbnailFilename = providedThumbnailFilename;
+  } else if (source.thumbnail) {
+    const sourceThumbnailName = removeThumbnailURL(source.thumbnail);
+    thumbnailFilename = await copyThumbnail(sourceThumbnailName);
+    copiedThumbnail = true;
+  }
+
+  try {
+    return await saveFurniture(
+      ownerId,
+      source.local_name,
+      source.file_name,
+      thumbnailFilename
+    );
+  } catch (err) {
+    if (copiedThumbnail && thumbnailFilename) {
+      try {
+        await deleteFile(path.join(THUMBNAIL_PATH, thumbnailFilename));
+      } catch (cleanupErr) {
+        console.error(
+          `Failed to clean up orphan thumbnail ${thumbnailFilename}: ${cleanupErr}`
+        );
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getFurnituresByOwnerId(ownerId: string) {
@@ -82,46 +142,65 @@ export async function deleteFurnitureById(
 ) {
   const { ownerId } = options || {};
 
-  let query = db
-    .deleteFrom("furniture")
-    .where("id", "=", furnitureId)
-    .returning([
-      "id as id",
-      "local_name as local_name",
-      "thumbnail as thumbnail",
-    ]);
+  const furniture = await db.transaction().execute(async (trx) => {
+    let query = trx
+      .deleteFrom("furniture")
+      .where("id", "=", furnitureId)
+      .returning([
+        "id as id",
+        "local_name as local_name",
+        "thumbnail as thumbnail",
+      ]);
 
-  if (ownerId) {
-    query = query.where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom("furniture_owner")
-          // This is required only for SQLite DB, which requires a column in the select
-          .select(["id"])
-          .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
-          .where("owner_id", "=", ownerId)
-      )
-    );
-  }
+    if (ownerId) {
+      query = query.where(({ exists, selectFrom }) =>
+        exists(
+          selectFrom("furniture_owner")
+            // This is required only for SQLite DB, which requires a column in the select
+            .select(["id"])
+            .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
+            .where("owner_id", "=", ownerId)
+        )
+      );
+    }
 
-  const furniture = await query.executeTakeFirst();
+    const deleted = await query.executeTakeFirst();
+
+    if (deleted) {
+      await trx
+        .deleteFrom("duplicate_token")
+        .where("furniture_id", "=", furnitureId)
+        .execute();
+    }
+
+    return deleted;
+  });
 
   if (furniture) {
-    fs.unlink(path.join(FURNITURE_PATH, furniture.local_name), (err) => {
-      if (err) {
+    const sharedCount = await countFurnitureSharingLocalName(
+      db,
+      furniture.local_name,
+      furniture.id
+    );
+
+    if (sharedCount === 0) {
+      try {
+        await deleteFile(path.join(FURNITURE_PATH, furniture.local_name));
+      } catch (err) {
         console.error(`Error deleting file ${furniture.local_name}: ${err}`);
       }
-    });
+    }
+
     if (furniture.thumbnail) {
-      fs.unlink(
-        path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail)),
-        (err) => {
-          if (err) {
-            console.error(
-              `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
-            );
-          }
-        }
-      );
+      try {
+        await deleteFile(
+          path.join(THUMBNAIL_PATH, path.basename(furniture.thumbnail))
+        );
+      } catch (err) {
+        console.error(
+          `Error deleting thumbnail ${furniture.thumbnail}: ${err}`
+        );
+      }
     }
   }
 
@@ -133,33 +212,34 @@ export async function replaceFurnitureFile(
   sourceLocalName: string,
   sourceFileName: string
 ) {
-  const originalName = path.join(FURNITURE_PATH, oldFurniture.local_name);
-  const tempName = path.join(FURNITURE_PATH, sourceLocalName);
+  const sharedCount = await db.transaction().execute(async (trx) => {
+    const count = await countFurnitureSharingLocalName(
+      trx,
+      oldFurniture.local_name,
+      oldFurniture.id
+    );
 
-  await new Promise<void>((resolve, reject) => {
-    fs.unlink(originalName, (err) => {
-      if (err) {
-        console.error(`Error deleting file ${oldFurniture.local_name}: ${err}`);
-        reject(err);
-      }
-      fs.rename(tempName, originalName, (err) => {
-        if (err) {
-          console.error(
-            `Error renaming file ${oldFurniture.local_name}: ${err}`
-          );
-          reject(err);
-        }
-        resolve();
-      });
-    });
+    await trx
+      .updateTable("furniture")
+      .set({
+        local_name: sourceLocalName,
+        file_name: sourceFileName,
+      })
+      .where("id", "=", oldFurniture.id)
+      .execute();
+
+    return count;
   });
 
-  if (oldFurniture.file_name === sourceFileName) return;
-  await db
-    .updateTable("furniture")
-    .set("file_name", sourceFileName)
-    .where("id", "=", oldFurniture.id)
-    .executeTakeFirst();
+  if (sharedCount === 0) {
+    try {
+      await deleteFile(path.join(FURNITURE_PATH, oldFurniture.local_name));
+    } catch (err) {
+      console.error(
+        `Error deleting old file ${oldFurniture.local_name}: ${err}`
+      );
+    }
+  }
 }
 
 export async function copyThumbnail(sourceThumbnail: string): Promise<string> {
@@ -205,9 +285,7 @@ export async function replaceFurnitureThumbnail(
         }
         fs.rename(tempName, newPath, (err) => {
           if (err) {
-            console.error(
-              `Error moving thumbnail file: ${err}`
-            );
+            console.error(`Error moving thumbnail file: ${err}`);
             reject(err);
             return;
           }

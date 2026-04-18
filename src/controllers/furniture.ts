@@ -5,7 +5,6 @@ import {
   consumeDuplicateToken,
 } from "../services/duplicate-token";
 import {
-  copyThumbnail,
   deleteFurnitureById,
   getFurnitureById,
   getFurnitureOwners,
@@ -13,6 +12,7 @@ import {
   replaceFurnitureFile,
   replaceFurnitureThumbnail,
   saveFurniture,
+  saveFurnitureFromExisting,
 } from "../services/furniture";
 import path from "node:path";
 import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
@@ -48,10 +48,10 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
 export const postFurnitureController: RequestHandler = async (req, res) => {
   const playfab = (req as any).playfab;
   if (req.files) {
+    const files = req.files as unknown as UploadedFiles;
+    const file = files.file[0];
+    const thumbnail = files.thumbnail?.[0];
     try {
-      const files = req.files as unknown as UploadedFiles;
-      const file = files.file[0];
-      const thumbnail = files.thumbnail?.[0];
       const furniture = await saveFurniture(
         playfab.id,
         file.filename,
@@ -64,6 +64,10 @@ export const postFurnitureController: RequestHandler = async (req, res) => {
       res.status(200).json({ id: furniture.id });
     } catch (error) {
       console.error(error);
+      await deleteFile(file.path).catch(() => {});
+      if (thumbnail) {
+        await deleteFile(thumbnail.path).catch(() => {});
+      }
       res.sendStatus(500);
       return;
     }
@@ -119,15 +123,22 @@ export const patchFurnitureFileController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
-      deleteFile(path.join(req.file.path));
+      await deleteFile(path.join(req.file.path)).catch(() => {});
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
-    replaceFurnitureFile(furniture, req.file.filename, req.file.originalname);
+    await replaceFurnitureFile(
+      furniture,
+      req.file.filename,
+      req.file.originalname
+    );
   } catch (error) {
     console.error(error);
+    if (req.file) {
+      await deleteFile(req.file.path).catch(() => {});
+    }
     res.sendStatus(500);
     return;
   }
@@ -148,15 +159,18 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
-      deleteFile(path.join(req.file.path));
+      await deleteFile(path.join(req.file.path)).catch(() => {});
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
     await replaceFurnitureThumbnail(furniture, req.file.filename);
   } catch (error) {
     console.error(error);
+    if (req.file) {
+      await deleteFile(req.file.path).catch(() => {});
+    }
     res.sendStatus(500);
     return;
   }
@@ -195,7 +209,7 @@ export const getDuplicateFurnitureController: RequestHandler<{
   }
   const playfab = (req as any).playfab;
   try {
-    const furniture = await getFurnitureById(id);
+    const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
       res.status(404).send("Furniture not found or you don't own it");
       return;
@@ -231,33 +245,24 @@ export const postDuplicateFurnitureController: RequestHandler<{
     });
     if (!furniture) {
       if (req.file) {
-        deleteFile(path.join(req.file.path));
+        await deleteFile(path.join(req.file.path)).catch(() => {});
       }
       res.status(404).send("Furniture not found or you don't own it");
       return;
     }
 
-    let thumbnail: string | undefined;
-    if (req.file) {
-      thumbnail = req.file.filename;
-    } else if (furniture.thumbnail) {
-      const originalThumbnailName = removeThumbnailURL(furniture.thumbnail);
-      thumbnail = await copyThumbnail(originalThumbnailName);
-    }
-
-    const furnitureCreated = await saveFurniture(
+    const furnitureCreated = await saveFurnitureFromExisting(
       playfab.id,
-      furniture.local_name,
-      furniture.file_name,
-      thumbnail
+      furniture,
+      req.file?.filename
     );
-    if (!furnitureCreated) {
-      throw new Error("Failed to duplicate furniture");
-    }
     await consumeDuplicateToken(token, playfab.id, Date.now());
     res.status(200).json({ id: furnitureCreated.id });
   } catch (error) {
     console.error(error);
+    if (req.file) {
+      await deleteFile(path.join(req.file.path)).catch(() => {});
+    }
     res.sendStatus(500);
     return;
   }

@@ -1,0 +1,201 @@
+import fs from "node:fs";
+import path from "node:path";
+import { initDatabase, db } from "../src/config/db";
+import { initPaths, FURNITURE_PATH, THUMBNAIL_PATH } from "../src/config/path";
+import {
+  saveFurniture,
+  saveFurnitureFromExisting,
+  deleteFurnitureById,
+  replaceFurnitureFile,
+  getFurnitureById,
+} from "../src/services/furniture";
+
+initPaths();
+initDatabase();
+
+function makeFile(dir: string, name: string, content = "data"): string {
+  fs.writeFileSync(path.join(dir, name), content);
+  return name;
+}
+
+function exists(dir: string, name: string): boolean {
+  return fs.existsSync(path.join(dir, name));
+}
+
+async function reset() {
+  await db.deleteFrom("duplicate_token").execute();
+  await db.deleteFrom("furniture_owner").execute();
+  await db.deleteFrom("furniture").execute();
+  for (const f of fs.readdirSync(FURNITURE_PATH)) {
+    fs.rmSync(path.join(FURNITURE_PATH, f), { force: true });
+  }
+  for (const f of fs.readdirSync(THUMBNAIL_PATH)) {
+    fs.rmSync(path.join(THUMBNAIL_PATH, f), { force: true });
+  }
+}
+
+function assert(cond: boolean, msg: string) {
+  if (cond) console.log(`  PASS: ${msg}`);
+  else {
+    console.log(`  FAIL: ${msg}`);
+    process.exitCode = 1;
+  }
+}
+
+async function testSharedDelete() {
+  console.log("\n[Test 1] Shared delete preserves model file for remaining room");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "model-uuid.zip");
+  makeFile(THUMBNAIL_PATH, "thumb-a.png");
+
+  const a = await saveFurniture("userA", "model-uuid.zip", "room.zip", "thumb-a.png");
+  const source = await getFurnitureById(a.id);
+  if (!source) throw new Error("source missing");
+
+  const b = await saveFurnitureFromExisting("userA", source);
+  const bRow = await getFurnitureById(b.id);
+
+  assert(bRow?.local_name === "model-uuid.zip", "copy reuses local_name");
+  assert(bRow?.thumbnail !== source.thumbnail, "copy has its own thumbnail URL");
+  assert(exists(FURNITURE_PATH, "model-uuid.zip"), "model file exists after copy");
+
+  await deleteFurnitureById(a.id, { ownerId: "userA" });
+
+  assert(exists(FURNITURE_PATH, "model-uuid.zip"), "model file STILL exists after deleting one sharer");
+  assert(!exists(THUMBNAIL_PATH, "thumb-a.png"), "thumbnail of deleted room is gone");
+
+  const bAfter = await getFurnitureById(b.id);
+  assert(bAfter !== undefined, "copy still exists in DB");
+
+  await deleteFurnitureById(b.id, { ownerId: "userA" });
+  assert(!exists(FURNITURE_PATH, "model-uuid.zip"), "model file gone once no room references it");
+}
+
+async function testUnsharedDelete() {
+  console.log("\n[Test 2] Unshared delete removes model file");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "solo.zip");
+  makeFile(THUMBNAIL_PATH, "thumb-s.png");
+  const a = await saveFurniture("userA", "solo.zip", "room.zip", "thumb-s.png");
+
+  assert(exists(FURNITURE_PATH, "solo.zip"), "file exists before delete");
+  await deleteFurnitureById(a.id, { ownerId: "userA" });
+  assert(!exists(FURNITURE_PATH, "solo.zip"), "file gone after solo delete");
+}
+
+async function testSharedReplace() {
+  console.log("\n[Test 3] Replace file on shared model does not touch old file");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "shared.zip", "original");
+  makeFile(THUMBNAIL_PATH, "thumb-a.png");
+  const a = await saveFurniture("userA", "shared.zip", "room.zip", "thumb-a.png");
+  const source = await getFurnitureById(a.id);
+  if (!source) throw new Error("source missing");
+  const b = await saveFurnitureFromExisting("userA", source);
+
+  makeFile(FURNITURE_PATH, "new-upload.zip", "new");
+  const bRow = await getFurnitureById(b.id);
+  if (!bRow) throw new Error("b missing");
+  await replaceFurnitureFile(bRow, "new-upload.zip", "newroom.zip");
+
+  assert(exists(FURNITURE_PATH, "shared.zip"), "old shared file preserved");
+  assert(exists(FURNITURE_PATH, "new-upload.zip"), "new file in place");
+
+  const aAfter = await getFurnitureById(a.id);
+  const bAfter = await getFurnitureById(b.id);
+  assert(aAfter?.local_name === "shared.zip", "A still points to shared.zip");
+  assert(bAfter?.local_name === "new-upload.zip", "B now points to new-upload.zip");
+}
+
+async function testUnsharedReplace() {
+  console.log("\n[Test 4] Replace file on solo model deletes old file");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "solo.zip", "old");
+  makeFile(THUMBNAIL_PATH, "thumb-s.png");
+  const a = await saveFurniture("userA", "solo.zip", "room.zip", "thumb-s.png");
+  const aRow = await getFurnitureById(a.id);
+  if (!aRow) throw new Error("a missing");
+
+  makeFile(FURNITURE_PATH, "new-upload.zip", "new");
+  await replaceFurnitureFile(aRow, "new-upload.zip", "newroom.zip");
+
+  assert(!exists(FURNITURE_PATH, "solo.zip"), "old solo file deleted");
+  assert(exists(FURNITURE_PATH, "new-upload.zip"), "new file in place");
+}
+
+async function testTokenCleanup() {
+  console.log("\n[Test 5] Deleting room cleans up duplicate tokens");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "x.zip");
+  const a = await saveFurniture("userA", "x.zip", "room.zip");
+  await db
+    .insertInto("duplicate_token")
+    .values({ token: "tok-abc", furniture_id: a.id, owner_id: "userA", expires: 9999999999999 })
+    .execute();
+
+  const before = await db.selectFrom("duplicate_token").select("id").where("furniture_id", "=", a.id).execute();
+  assert(before.length === 1, "token exists before delete");
+
+  await deleteFurnitureById(a.id, { ownerId: "userA" });
+
+  const after = await db.selectFrom("duplicate_token").select("id").where("furniture_id", "=", a.id).execute();
+  assert(after.length === 0, "token removed after delete");
+}
+
+async function testOwnershipIsolation() {
+  console.log("\n[Test 6] getFurnitureById with ownerId filters out non-owners");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "x.zip");
+  const a = await saveFurniture("userA", "x.zip", "room.zip");
+
+  const asA = await getFurnitureById(a.id, { ownerId: "userA" });
+  const asB = await getFurnitureById(a.id, { ownerId: "userB" });
+  assert(asA !== undefined, "owner can see their room");
+  assert(asB === undefined, "non-owner cannot see the room");
+}
+
+async function testUniqueOwnership() {
+  console.log("\n[Test 7] furniture_owner rejects duplicate (furniture_id, owner_id)");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "x.zip");
+  const a = await saveFurniture("userA", "x.zip", "room.zip");
+
+  let rejected = false;
+  try {
+    await db
+      .insertInto("furniture_owner")
+      .values({ furniture_id: a.id, owner_id: "userA" })
+      .execute();
+  } catch (e) {
+    rejected = true;
+  }
+  assert(rejected, "unique constraint enforced");
+}
+
+async function main() {
+  try {
+    await testSharedDelete();
+    await testUnsharedDelete();
+    await testSharedReplace();
+    await testUnsharedReplace();
+    await testTokenCleanup();
+    await testOwnershipIsolation();
+    await testUniqueOwnership();
+    console.log("\ndone.");
+  } finally {
+    await reset();
+    await db.destroy();
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
