@@ -4,7 +4,9 @@
       "Bash(npm_config_node_gyp=\"C:\\\\\\\\Users\\\\\\\\asus\\\\\\\\AppData\\\\\\\\Roaming\\\\\\\\npm\\\\\\\\node_modules\\\\\\\\node-gyp\\\\\\\\bin\\\\\\\\node-gyp.js\" node --env-file=.env node_modules/kysely-ctl/dist/bin/kysely.js migrate:latest)",
       "Bash(pnpm run *)",
       "Bash(node -e ' *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(pnpm test *)",
+      "Bash(echo \"---exit: $?---\")"
     ]
   }
 }

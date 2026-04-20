@@ -1,3 +1,23 @@
+/**
+ * Core business logic for furniture management.
+ *
+ * ## Key invariants
+ *
+ * **Shared physical files** — when a furniture is duplicated via
+ * `saveFurnitureFromExisting`, the new row reuses the same `local_name`
+ * (the UUID filename on disk). Multiple `furniture` rows may therefore point
+ * to the same physical zip file. The file is only deleted from disk once no
+ * row references it, enforced by `countFurnitureSharingLocalName`.
+ *
+ * **Unique thumbnails** — thumbnails are never shared. Every furniture row
+ * owns its own copy of the thumbnail file. `saveFurnitureFromExisting` always
+ * copies the source thumbnail to a fresh UUID filename before inserting.
+ *
+ * **`local_name` vs `file_name`** — `local_name` is the name under which
+ * the zip is stored on disk (assigned by multer, typically a UUID). `file_name`
+ * is the original filename the uploader provided and is stored for display only.
+ */
+
 import { db, DatabaseSchema } from "../config/db";
 import path from "node:path";
 import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
@@ -11,8 +31,21 @@ import {
 import { deleteFile } from "../utils/file";
 import { Kysely, Transaction } from "kysely";
 
+/** Allows service functions to be called both inside and outside a transaction. */
 type Executor = Kysely<DatabaseSchema> | Transaction<DatabaseSchema>;
 
+/**
+ * Returns the number of `furniture` rows that share `localName` as their
+ * physical file, excluding the row identified by `excludeId`.
+ *
+ * Used to determine whether it is safe to delete the physical zip file after
+ * a row is removed or its `local_name` is updated.
+ *
+ * @param executor - A Kysely instance or an active transaction.
+ * @param localName - The on-disk filename to search for.
+ * @param excludeId - The `furniture.id` to exclude from the count (typically
+ *   the row being deleted/replaced so it doesn't count itself).
+ */
 async function countFurnitureSharingLocalName(
   executor: Executor,
   localName: string,
@@ -27,6 +60,15 @@ async function countFurnitureSharingLocalName(
   return Number(result.count);
 }
 
+/**
+ * Fetches a single furniture row by its primary key.
+ *
+ * @param id - The furniture's primary key.
+ * @param options.ownerId - When provided, the query only succeeds if this user
+ *   is listed in `furniture_owner`. Returns `undefined` for non-owners, making
+ *   this safe to use as an ownership gate without a separate query.
+ * @returns The furniture row, or `undefined` if not found (or not owned).
+ */
 export async function getFurnitureById(
   id: number,
   options?: { ownerId?: string }
@@ -36,10 +78,11 @@ export async function getFurnitureById(
   let query = db.selectFrom("furniture").selectAll().where("id", "=", id);
 
   if (ownerId) {
+    // SQLite requires at least one column in a correlated subquery SELECT;
+    // selecting `id` satisfies that constraint while keeping the query minimal.
     query = query.where(({ exists, selectFrom }) =>
       exists(
         selectFrom("furniture_owner")
-          // This is required only for SQLite DB, which requires a column in the select
           .select(["id"])
           .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
           .where("owner_id", "=", ownerId)
@@ -50,6 +93,18 @@ export async function getFurnitureById(
   return await query.executeTakeFirst();
 }
 
+/**
+ * Inserts a new `furniture` row and registers `ownerId` as its first owner,
+ * both within a single atomic transaction.
+ *
+ * @param ownerId - PlayFab ID of the user uploading the furniture.
+ * @param localName - The on-disk filename (UUID) assigned by multer.
+ * @param fileName - The original filename provided by the uploader (display only).
+ * @param thumbnail - Optional on-disk thumbnail filename; stored as a URL prefix
+ *   (`/thumbnails/<filename>`) via `generateThumbnailURL`.
+ * @returns An object containing the new furniture's `id`.
+ * @throws If the database insert fails.
+ */
 export async function saveFurniture(
   ownerId: string,
   localName: string,
@@ -83,6 +138,26 @@ export async function saveFurniture(
   });
 }
 
+/**
+ * Creates a new furniture row that shares the physical zip file of an existing
+ * one (the `local_name` is reused, not copied). The thumbnail is handled
+ * separately:
+ *
+ * - If `providedThumbnailFilename` is given (the claimer uploaded their own
+ *   thumbnail), it is used as-is.
+ * - Otherwise, the source thumbnail is copied to a new UUID filename so every
+ *   row has its own independent thumbnail file.
+ *
+ * If the DB insert fails after a thumbnail copy was made, the orphan copy is
+ * deleted as part of error cleanup.
+ *
+ * @param ownerId - PlayFab ID of the user claiming the duplicate.
+ * @param source - The existing furniture row to duplicate.
+ * @param providedThumbnailFilename - Optional thumbnail filename uploaded by
+ *   the claimer; overrides copying the source thumbnail.
+ * @returns An object containing the new furniture's `id`.
+ * @throws Rethrows any DB error after attempting orphan thumbnail cleanup.
+ */
 export async function saveFurnitureFromExisting(
   ownerId: string,
   source: Furniture,
@@ -96,6 +171,7 @@ export async function saveFurnitureFromExisting(
   } else if (source.thumbnail) {
     const sourceThumbnailName = removeThumbnailURL(source.thumbnail);
     thumbnailFilename = await copyThumbnail(sourceThumbnailName);
+    // Track that we created this file so we can clean it up on insert failure.
     copiedThumbnail = true;
   }
 
@@ -107,6 +183,8 @@ export async function saveFurnitureFromExisting(
       thumbnailFilename
     );
   } catch (err) {
+    // The DB insert failed. If we copied a thumbnail for this row, it is now
+    // an orphan on disk. Best-effort cleanup — log and continue throwing.
     if (copiedThumbnail && thumbnailFilename) {
       try {
         await deleteFile(path.join(THUMBNAIL_PATH, thumbnailFilename));
@@ -120,6 +198,16 @@ export async function saveFurnitureFromExisting(
   }
 }
 
+/**
+ * Returns all furniture rows owned by `ownerId`, ordered oldest-first.
+ *
+ * The result includes `id`, `file_name` (display name), and `thumbnail`
+ * (URL string). It does not include `local_name` (the physical filename),
+ * which is an internal implementation detail.
+ *
+ * @param ownerId - PlayFab ID of the requesting user.
+ * @returns Array of furniture summaries (may be empty if the user owns none).
+ */
 export async function getFurnituresByOwnerId(ownerId: string) {
   const furnitures = await db
     .selectFrom("furniture")
@@ -136,6 +224,27 @@ export async function getFurnituresByOwnerId(ownerId: string) {
   return furnitures;
 }
 
+/**
+ * Deletes a furniture row and handles all cascading side effects:
+ *
+ * 1. **Transaction** — removes the `furniture` row (and its associated
+ *    `furniture_owner` records via FK cascade). Also explicitly deletes any
+ *    `duplicate_token` rows referencing this furniture so they don't linger.
+ * 2. **Physical zip cleanup** — after the transaction, counts remaining rows
+ *    that still reference the same `local_name`. If none remain, the physical
+ *    zip file is deleted from disk.
+ * 3. **Thumbnail cleanup** — the row's thumbnail (if any) is always deleted
+ *    from disk because thumbnails are never shared between rows.
+ *
+ * File deletion errors are logged but do not cause this function to throw.
+ *
+ * @param furnitureId - Primary key of the furniture to delete.
+ * @param options.ownerId - When provided, the delete is conditional: the row
+ *   is only removed if this user is an owner. Returns `undefined` if the
+ *   furniture was not found or not owned.
+ * @returns The deleted row's `id`, `local_name`, and `thumbnail`, or
+ *   `undefined` if nothing was deleted.
+ */
 export async function deleteFurnitureById(
   furnitureId: number,
   options?: { ownerId?: string }
@@ -153,10 +262,10 @@ export async function deleteFurnitureById(
       ]);
 
     if (ownerId) {
+      // SQLite requires at least one column in a correlated subquery SELECT.
       query = query.where(({ exists, selectFrom }) =>
         exists(
           selectFrom("furniture_owner")
-            // This is required only for SQLite DB, which requires a column in the select
             .select(["id"])
             .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
             .where("owner_id", "=", ownerId)
@@ -167,6 +276,8 @@ export async function deleteFurnitureById(
     const deleted = await query.executeTakeFirst();
 
     if (deleted) {
+      // Explicitly delete tokens even though the FK cascade would handle it —
+      // belt-and-suspenders given the table was retrofitted with FK in a later migration.
       await trx
         .deleteFrom("duplicate_token")
         .where("furniture_id", "=", furnitureId)
@@ -177,6 +288,8 @@ export async function deleteFurnitureById(
   });
 
   if (furniture) {
+    // The row is already deleted. Count remaining rows that still use the same
+    // physical file (excludeId is a safety net; the deleted row won't appear).
     const sharedCount = await countFurnitureSharingLocalName(
       db,
       furniture.local_name,
@@ -191,6 +304,7 @@ export async function deleteFurnitureById(
       }
     }
 
+    // Thumbnails are always unique per row, so always delete.
     if (furniture.thumbnail) {
       try {
         await deleteFile(
@@ -207,11 +321,28 @@ export async function deleteFurnitureById(
   return furniture;
 }
 
+/**
+ * Replaces the physical zip file associated with a furniture row.
+ *
+ * Within a single transaction the function:
+ * 1. Counts how many other rows still reference the old `local_name`.
+ * 2. Updates the row to point to the new file.
+ *
+ * The shared-count check happens **inside** the transaction before the update
+ * so it reflects the state before `local_name` changes. After the transaction,
+ * if no other row was sharing the old file, it is deleted from disk.
+ *
+ * @param oldFurniture - The existing furniture row (used for its `id` and
+ *   current `local_name`).
+ * @param sourceLocalName - On-disk filename of the newly uploaded zip.
+ * @param sourceFileName - Original filename of the newly uploaded zip (display only).
+ */
 export async function replaceFurnitureFile(
   oldFurniture: Furniture,
   sourceLocalName: string,
   sourceFileName: string
 ) {
+  // Count before updating so we capture the sharing state of the OLD file.
   const sharedCount = await db.transaction().execute(async (trx) => {
     const count = await countFurnitureSharingLocalName(
       trx,
@@ -242,6 +373,17 @@ export async function replaceFurnitureFile(
   }
 }
 
+/**
+ * Copies `sourceThumbnail` (a filename relative to `THUMBNAIL_PATH`) to a new
+ * file with a freshly generated UUID name, preserving the original extension.
+ *
+ * Used by `saveFurnitureFromExisting` to give each furniture row its own
+ * independent thumbnail file even when the zip is shared.
+ *
+ * @param sourceThumbnail - Filename of the thumbnail to copy (not a full path).
+ * @returns The filename of the newly created copy (not a full path).
+ * @throws If the underlying `fs.copyFile` fails.
+ */
 export async function copyThumbnail(sourceThumbnail: string): Promise<string> {
   const ext = path.extname(sourceThumbnail);
   const newThumbnailName = `${randomUUID()}${ext}`;
@@ -262,6 +404,23 @@ export async function copyThumbnail(sourceThumbnail: string): Promise<string> {
   return newThumbnailName;
 }
 
+/**
+ * Replaces a furniture row's thumbnail file and updates the DB record.
+ *
+ * `sourceLocalName` is the temporary filename that multer wrote to
+ * `THUMBNAIL_PATH`. This function renames it to a fresh UUID name, then
+ * updates the `furniture.thumbnail` column with the new URL.
+ *
+ * If the row had a previous thumbnail, that file is deleted first. The
+ * deletion error (if any) is logged but does not abort the rename — the new
+ * thumbnail is always put in place regardless.
+ *
+ * @param oldFurniture - The existing furniture row (used for its `id` and
+ *   current `thumbnail` URL).
+ * @param sourceLocalName - The temporary on-disk filename of the new thumbnail
+ *   (the name multer assigned on upload, before UUID renaming).
+ * @throws If the `fs.rename` of the new thumbnail fails.
+ */
 export async function replaceFurnitureThumbnail(
   oldFurniture: Furniture,
   sourceLocalName: string
@@ -277,6 +436,8 @@ export async function replaceFurnitureThumbnail(
     );
 
     await new Promise<void>((resolve, reject) => {
+      // Delete old thumbnail first. Failure is logged but does not block the
+      // rename so the new file is always placed even if cleanup partially fails.
       fs.unlink(oldPath, (err) => {
         if (err) {
           console.error(
@@ -314,6 +475,15 @@ export async function replaceFurnitureThumbnail(
     .executeTakeFirst();
 }
 
+/**
+ * Returns the list of owner IDs for a given furniture.
+ *
+ * @param furnitureId - Primary key of the furniture to look up.
+ * @param options.ownerId - When provided, the result is gated on ownership:
+ *   returns `undefined` if `ownerId` does not own the furniture.
+ * @returns Array of PlayFab ID strings, or `undefined` if the furniture does
+ *   not exist or has no owners.
+ */
 export async function getFurnitureOwners(
   furnitureId: number,
   options?: { ownerId?: string }

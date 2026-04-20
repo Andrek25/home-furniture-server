@@ -1,3 +1,24 @@
+/**
+ * HTTP request handlers for all furniture-related routes.
+ *
+ * This layer sits between Express routes and the service layer. Each handler
+ * is responsible for exactly three things:
+ *  1. Validating and extracting input from the request.
+ *  2. Calling the appropriate service function(s).
+ *  3. Sending the HTTP response (or cleaning up uploaded files on failure).
+ *
+ * ## Auth pattern
+ * Every handler receives the caller's PlayFab ID via `(req as any).playfab.id`.
+ * The `playfab` object is attached by `playfabMiddleware` before the router
+ * reaches these handlers. Express does not support typed request extensions
+ * without module augmentation, so the `as any` cast is used throughout.
+ *
+ * ## Uploaded-file cleanup
+ * Multer writes uploaded files to disk *before* the handler runs. If the
+ * handler exits early (404 ownership check, DB error, etc.) it must manually
+ * delete those files via `deleteFile` to avoid leaving orphans on disk.
+ */
+
 import { type RequestHandler } from "express";
 import {
   createDuplicateToken,
@@ -21,6 +42,17 @@ import { deleteFile } from "../utils/file";
 import { removeThumbnailURL } from "../utils/thumbnails";
 import { ENV } from "../config/env";
 
+/**
+ * `GET /api/v1/furniture/:id`
+ *
+ * Streams the furniture's zip file to the caller. Any authenticated user may
+ * fetch any furniture by ID — ownership is NOT checked here.
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if no furniture with that ID exists.
+ * - `200` with the raw zip file on success.
+ */
 export const getFurnitureController: RequestHandler<{ id: string }> = async (
   req,
   res
@@ -30,6 +62,8 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
     res.status(400).send("You must provide a valid id");
     return;
   }
+  // playfab is available here (set by middleware) but ownership is not
+  // enforced — this endpoint is intentionally public to authenticated users.
   const playfab = (req as any).playfab;
   try {
     const furniture = await getFurnitureById(id);
@@ -45,6 +79,21 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
   }
 };
 
+/**
+ * `POST /api/v1/furniture`
+ *
+ * Uploads a new furniture. The caller becomes the sole owner. Expects a
+ * `multipart/form-data` body with:
+ * - `file` (required) — the zip file.
+ * - `thumbnail` (optional) — an image file.
+ *
+ * If the DB save fails, any files already written to disk by multer are
+ * deleted before responding.
+ *
+ * Responds with:
+ * - `200` `{ id }` on success.
+ * - `500` on failure (uploaded files cleaned up).
+ */
 export const postFurnitureController: RequestHandler = async (req, res) => {
   const playfab = (req as any).playfab;
   if (req.files) {
@@ -64,6 +113,7 @@ export const postFurnitureController: RequestHandler = async (req, res) => {
       res.status(200).json({ id: furniture.id });
     } catch (error) {
       console.error(error);
+      // Multer already wrote these files; clean them up so they don't orphan.
       await deleteFile(file.path).catch(() => {});
       if (thumbnail) {
         await deleteFile(thumbnail.path).catch(() => {});
@@ -74,6 +124,16 @@ export const postFurnitureController: RequestHandler = async (req, res) => {
   }
 };
 
+/**
+ * `GET /api/v1/furnitures`
+ *
+ * Returns all furniture records owned by the authenticated caller, ordered
+ * oldest-first.
+ *
+ * Responds with:
+ * - `200` `{ furnitures: Array<{ id, file_name, thumbnail }> }` on success.
+ * - `500` on DB failure.
+ */
 export const getFurnituresController: RequestHandler = async (req, res) => {
   const playfab = (req as any).playfab;
   try {
@@ -85,6 +145,19 @@ export const getFurnituresController: RequestHandler = async (req, res) => {
   }
 };
 
+/**
+ * `DELETE /api/v1/furniture/:id`
+ *
+ * Deletes a furniture. The caller must own it. Cascades to on-disk file
+ * cleanup via `deleteFurnitureById` (see that function for the shared-file
+ * and thumbnail invariants).
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if the furniture is not found or the caller does not own it.
+ * - `200` on success.
+ * - `500` on unexpected failure.
+ */
 export const deleteFurnitureController: RequestHandler<{ id: string }> = async (
   req,
   res
@@ -109,6 +182,23 @@ export const deleteFurnitureController: RequestHandler<{ id: string }> = async (
   res.sendStatus(200);
 };
 
+/**
+ * `POST /api/v1/furniture/:id/file`
+ *
+ * Replaces the zip file of an existing furniture. The caller must own it.
+ * Named POST (not PATCH) because the Unity C# client does not support PATCH.
+ *
+ * Expects `multipart/form-data` with a single `file` field (zip).
+ *
+ * If the ownership check fails or a DB error occurs, the newly uploaded file
+ * is deleted from disk before responding.
+ *
+ * Responds with:
+ * - `400` if `:id` is invalid or no file was provided.
+ * - `404` if the furniture is not found or not owned.
+ * - `200` on success.
+ * - `500` on unexpected failure (uploaded file cleaned up).
+ */
 export const patchFurnitureFileController: RequestHandler<{
   id: string;
 }> = async (req, res) => {
@@ -125,6 +215,7 @@ export const patchFurnitureFileController: RequestHandler<{
   try {
     const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
+      // Ownership check failed — multer already wrote the file, so clean up.
       await deleteFile(path.join(req.file.path)).catch(() => {});
       res.status(404).send("Furniture not found or you don't own it");
       return;
@@ -145,6 +236,23 @@ export const patchFurnitureFileController: RequestHandler<{
   res.sendStatus(200);
 };
 
+/**
+ * `POST /api/v1/furniture/:id/thumbnail`
+ *
+ * Replaces the thumbnail of an existing furniture. The caller must own it.
+ * Named POST (not PATCH) because the Unity C# client does not support PATCH.
+ *
+ * Expects `multipart/form-data` with a single `thumbnail` field (image).
+ *
+ * If the ownership check fails or a DB error occurs, the newly uploaded
+ * thumbnail is deleted from disk before responding.
+ *
+ * Responds with:
+ * - `400` if `:id` is invalid or no file was provided.
+ * - `404` if the furniture is not found or not owned.
+ * - `200` on success.
+ * - `500` on unexpected failure (uploaded file cleaned up).
+ */
 export const patchFurnitureThumbnailController: RequestHandler<{
   id: string;
 }> = async (req, res) => {
@@ -161,6 +269,7 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   try {
     const furniture = await getFurnitureById(id, { ownerId: playfab.id });
     if (!furniture) {
+      // Ownership check failed — multer already wrote the file, so clean up.
       await deleteFile(path.join(req.file.path)).catch(() => {});
       res.status(404).send("Furniture not found or you don't own it");
       return;
@@ -177,6 +286,18 @@ export const patchFurnitureThumbnailController: RequestHandler<{
   res.sendStatus(200);
 };
 
+/**
+ * `GET /api/v1/furniture/:id/owners`
+ *
+ * Returns all owner PlayFab IDs for a furniture. No ownership gate — any
+ * authenticated user can query the owner list of any furniture.
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if the furniture does not exist.
+ * - `200` `{ furnitureId, owners: string[] }` on success.
+ * - `500` on unexpected failure.
+ */
 export const getFurnitureOwnersController: RequestHandler<{
   id: string;
 }> = async (req, res) => {
@@ -198,7 +319,22 @@ export const getFurnitureOwnersController: RequestHandler<{
   }
 };
 
-// Persistent token: Owner requests a duplicate token for their furniture
+/**
+ * `GET /api/v1/duplicate-furniture/:id`
+ *
+ * Generates a persistent duplicate token that allows other users to claim a
+ * copy of this furniture. The caller must own it. Tokens are valid for
+ * `DUPLICATE_TOKEN_EXPIRY` minutes (from `ENV`).
+ *
+ * Tokens are reusable — they are never deleted on claim, only marked as
+ * consumed. An owner may generate multiple tokens for the same furniture.
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if the furniture is not found or not owned by the caller.
+ * - `200` `{ token: string }` on success.
+ * - `500` on unexpected failure.
+ */
 export const getDuplicateFurnitureController: RequestHandler<{
   id: string;
 }> = async (req, res) => {
@@ -223,6 +359,32 @@ export const getDuplicateFurnitureController: RequestHandler<{
   }
 };
 
+/**
+ * `POST /api/v1/duplicate-furniture/:token`
+ *
+ * Claims a duplicate token, creating a new furniture row for the caller that
+ * shares the original's zip file. The claimer may optionally provide their own
+ * thumbnail; if omitted, the source thumbnail is copied automatically.
+ *
+ * Ownership of the source furniture is verified against the token's stored
+ * `owner_id` (the person who generated the token), not the caller's ID. This
+ * ensures the source furniture still exists and belongs to the token issuer.
+ *
+ * The token is marked as consumed (`consumed_by`, `consumed_at`) after the
+ * furniture is created, but it is NOT deleted — tokens remain reusable.
+ *
+ * If the source furniture is missing or the save fails, any uploaded thumbnail
+ * is deleted from disk before responding.
+ *
+ * Expects an optional `multipart/form-data` body with a `thumbnail` field.
+ *
+ * Responds with:
+ * - `400` if the token param is missing or the token is not found in the DB.
+ * - `404` if the source furniture no longer exists or is no longer owned by
+ *   the token issuer.
+ * - `200` `{ id }` with the new furniture's ID on success.
+ * - `500` on unexpected failure (uploaded thumbnail cleaned up).
+ */
 export const postDuplicateFurnitureController: RequestHandler<{
   token: string;
 }> = async (req, res) => {
@@ -240,6 +402,8 @@ export const postDuplicateFurnitureController: RequestHandler<{
   const playfab = (req as any).playfab;
 
   try {
+    // Verify source furniture using the token issuer's ID, not the caller's —
+    // the caller is claiming, not owning the source.
     const furniture = await getFurnitureById(tokenData.furniture_id, {
       ownerId: tokenData.owner_id,
     });
@@ -256,6 +420,8 @@ export const postDuplicateFurnitureController: RequestHandler<{
       furniture,
       req.file?.filename
     );
+    // Mark consumed after a successful save — not before, so a failed save
+    // does not consume the token unnecessarily.
     await consumeDuplicateToken(token, playfab.id, Date.now());
     res.status(200).json({ id: furnitureCreated.id });
   } catch (error) {
@@ -268,6 +434,17 @@ export const postDuplicateFurnitureController: RequestHandler<{
   }
 };
 
+/**
+ * `GET /api/v1/furniture/:id/thumbnail`
+ *
+ * Streams the thumbnail image for a furniture. No ownership check — any
+ * authenticated user may fetch any furniture's thumbnail.
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if the furniture is not found or has no thumbnail.
+ * - `200` with the raw image file on success.
+ */
 export const getFurnitureThumbnailController: RequestHandler<{
   id: string;
 }> = async (req, res) => {
@@ -282,6 +459,8 @@ export const getFurnitureThumbnailController: RequestHandler<{
       res.status(404).send("Furniture not found");
       return;
     }
+    // thumbnail is stored as a URL ("/thumbnails/<filename>"); strip the prefix
+    // to get the bare filename needed for sendFile.
     const thumbnail = furniture.thumbnail
       ? removeThumbnailURL(furniture.thumbnail)
       : undefined;
