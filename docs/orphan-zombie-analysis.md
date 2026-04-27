@@ -34,38 +34,31 @@ Verified by `scripts/verify.ts` (7 invariants):
 
 ## DB-internal risks STILL active
 
-### 1. `replaceFurnitureThumbnail` is not transactional
-`services/furniture.ts:424-476`. Order is `unlink old → rename new → UPDATE
-DB`. A failure or crash after the rename and before the UPDATE leaves a zombie
-row (DB references missing old file) and an orphan file (new file with no
-reference). Only mutation that doesn't follow the "tx first, file cleanup
-after" pattern.
+### 1. ~~`replaceFurnitureThumbnail` is not transactional~~ — fixed
+`services/furniture.ts:replaceFurnitureThumbnail`. Reordered to "rename new
+→ UPDATE DB → delete old (best-effort)". DB-update failure cleans up the
+just-renamed file before rethrowing. Zombie-row case eliminated.
 
-### 2. Token consume is outside the save tx
-`controllers/furniture.ts:418-425`. `saveFurnitureFromExisting` (its own tx)
-runs, then `consumeDuplicateToken` is a separate UPDATE. Crash between → new
-furniture exists, token unconsumed. Same user can re-claim and accumulate
-duplicate rooms; no unique constraint prevents this because each call creates
-a fresh `furniture.id`. Abuse vector for uncontrolled growth.
+### 2. ~~Token consume is outside the save tx~~ — fixed
+`saveFurnitureFromExisting` now accepts an `extraInTx` callback;
+`controllers/furniture.ts:postDuplicateFurnitureController` passes a closure
+that calls `consumeDuplicateToken(..., trx)` inside the same transaction as
+the clone insert. Closes the retry-creates-duplicates abuse vector.
 
 ### 3. `consumeDuplicateToken` is lossy
 Schema has only one `consumed_by`/`consumed_at` pair, but tokens are reusable
 (`duplicate-token.ts:21`). Each new claim overwrites the prior audit fields.
 Cannot reconstruct full claim history.
 
-### 4. `expires` not enforced
-`getDuplicateToken` returns the row regardless of `expires`. Comment in
-`duplicate-token.ts:42` acknowledges this. Old tokens work indefinitely.
+### 4. ~~`expires` not enforced~~ — intentional
+Tokens are intentionally persistent and never expire. The `expires` column is
+vestigial; do not propose enforcement or a cleanup cron.
 
-### 5. Repeat-claim collision
-A user can claim the same token an unbounded number of times if `consume`
-fails. With #2, a network blip during consume → retry → two `furniture` rows
-for the same source.
-
-### 6. `postFurnitureController` silent hang
-`controllers/furniture.ts:97-125`. Body gated on `if (req.files)`. If multer
-accepts zero files, no response is ever sent. Client times out, may retry,
-creating duplicate uploads.
+### 6. ~~`postFurnitureController` silent hang~~ — fixed
+`controllers/furniture.ts:postFurnitureController`. Now normalises
+`req.files` and the per-field arrays, validates the required `file` field up
+front, and responds `400 "file required"` (cleaning up any orphan thumbnail)
+when multer's `fileFilter` rejected the upload.
 
 ### 7. No disk ↔ DB drift detector
 Per-op cleanup is correct, but historical orphans from pre-fix bugs may sit
@@ -94,17 +87,19 @@ PlayFab updated, server thumbnail stale on failure. Visual inconsistency.
 Server has no signal. `furniture_owner` rows persist on server.
 
 ### CP-5. Token created, PlayFab save fails
-`AllowShareLinkRoutine`. Token row exists with no client knowing. Combined
-with #4, accumulates forever.
+`AllowShareLinkRoutine`. Token row exists with no client knowing. Since
+tokens never expire (intentional, see #4), these accumulate forever.
 
 ### CP-6. `Token` field overwritten in PlayFab
 Each `AllowShareLinkRoutine` overwrites `Token` in PlayFab. Old token still
 valid on server. Token zombies untracked.
 
-### CP-7. No `scene_base_id` on `furniture`
-PlayFab → server is the only direction with a reference. Server cannot
-answer "is this furniture still referenced by any PlayFab room?" without
-admin-API enumeration.
+### CP-7. ~~No `scene_base_id` on `furniture`~~ — partially addressed
+Column added (migration `1739436042233_furniture_scene_base_id`). Both upload
+controllers read `req.body.scene_base_id` from multipart form data and
+persist it. Existing rows and rows from older Unity builds remain NULL and
+are excluded from any cross-platform reconciliation. Reconciliation logic
+itself is not yet built — see P4.
 
 ## Detection queries available today
 
@@ -114,17 +109,6 @@ SELECT f.id, f.local_name, f.thumbnail, f.created_at
 FROM furniture f
 LEFT JOIN furniture_owner fo ON fo.furniture_id = f.id
 WHERE fo.id IS NULL;
-
--- Tokens past expiry
-SELECT id, token, furniture_id, owner_id, expires, consumed_by
-FROM duplicate_token
-WHERE expires < strftime('%s','now') * 1000;
-
--- Unconsumed expired tokens (cleanup candidates)
-SELECT id, token, furniture_id, owner_id
-FROM duplicate_token
-WHERE consumed_at IS NULL
-  AND expires < strftime('%s','now') * 1000;
 
 -- Sharing distribution (who shares the most-replicated model)
 SELECT local_name, COUNT(*) AS sharers
@@ -149,13 +133,15 @@ Cannot detect with SQL alone:
 
 ## Recommendations (priority order)
 
-- **P0** — Make `replaceFurnitureThumbnail` transactional (UPDATE first, file
-  ops after commit). Closes #1. ~30 min.
-- **P1** — Bundle `consumeDuplicateToken` into the same tx as
-  `saveFurnitureFromExisting`. Closes #2 and #5. ~1 hr.
-- **P2** — Enforce `expires` in `getDuplicateToken`; add cleanup cron. ~30 min.
-- **P3** — Add `scene_base_id` and `playfab_owner_id` columns on `furniture`.
-  Unlocks all cross-platform reconciliation. ~2 hrs incl. migration.
+- ~~**P0** — Make `replaceFurnitureThumbnail` transactional. Closes #1.~~ Done.
+- ~~**P1** — Bundle `consumeDuplicateToken` into the same tx as
+  `saveFurnitureFromExisting`. Closes #2 and the retry-duplicate vector.~~ Done.
+- ~~**P2** — Enforce `expires`. Skipped: tokens are intentionally non-expiring.~~
+- ~~**P3** — Add `scene_base_id` to `furniture`. Unlocks cross-platform
+  reconciliation.~~ Done. (`playfab_owner_id` skipped as redundant with
+  `furniture_owner.owner_id`.) Unity client must start sending
+  `scene_base_id` as a form field on `POST /api/v1/furniture` and
+  `POST /api/v1/duplicate-furniture/:token` for new rows to be reconcilable.
 - **P4** — Disk-scan reconciliation script (log-only first, then enable
   deletion). ~2 hrs.
 - **P5** — Self-healing 404 on Unity client: delete PlayFab key on download

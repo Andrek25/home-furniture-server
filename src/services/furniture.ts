@@ -102,6 +102,9 @@ export async function getFurnitureById(
  * @param fileName - The original filename provided by the uploader (display only).
  * @param thumbnail - Optional on-disk thumbnail filename; stored as a URL prefix
  *   (`/thumbnails/<filename>`) via `generateThumbnailURL`.
+ * @param sceneBaseId - Optional PlayFab `SceneBaseID` of the room that owns
+ *   this furniture; required for cross-platform reconciliation but stored as
+ *   NULL when the client doesn't send it (older client builds).
  * @returns An object containing the new furniture's `id`.
  * @throws If the database insert fails.
  */
@@ -109,7 +112,8 @@ export async function saveFurniture(
   ownerId: string,
   localName: string,
   fileName: string,
-  thumbnail?: string
+  thumbnail?: string,
+  sceneBaseId?: string
 ) {
   const thumbnailURL = thumbnail ? generateThumbnailURL(thumbnail) : undefined;
 
@@ -120,6 +124,7 @@ export async function saveFurniture(
         local_name: localName,
         file_name: fileName,
         thumbnail: thumbnailURL,
+        scene_base_id: sceneBaseId,
       })
       .returning("id")
       .executeTakeFirst();
@@ -155,13 +160,26 @@ export async function saveFurniture(
  * @param source - The existing furniture row to duplicate.
  * @param providedThumbnailFilename - Optional thumbnail filename uploaded by
  *   the claimer; overrides copying the source thumbnail.
+ * @param sceneBaseId - Optional PlayFab `SceneBaseID` of the *claimer's* room
+ *   that the duplicate will live in (not the source's). Stored as NULL when
+ *   the client doesn't send it.
+ * @param extraInTx - Optional callback invoked inside the same transaction
+ *   after the furniture row is inserted. Lets callers atomically combine the
+ *   insert with related writes (e.g. consuming a duplicate token) so a crash
+ *   between cannot leave the two systems out of sync. Throwing from the
+ *   callback aborts the transaction and triggers thumbnail cleanup.
  * @returns An object containing the new furniture's `id`.
  * @throws Rethrows any DB error after attempting orphan thumbnail cleanup.
  */
 export async function saveFurnitureFromExisting(
   ownerId: string,
   source: Furniture,
-  providedThumbnailFilename?: string
+  providedThumbnailFilename?: string,
+  sceneBaseId?: string,
+  extraInTx?: (
+    trx: Transaction<DatabaseSchema>,
+    furnitureId: number
+  ) => Promise<void>
 ): Promise<{ id: number }> {
   let thumbnailFilename: string | undefined;
   let copiedThumbnail = false;
@@ -175,16 +193,40 @@ export async function saveFurnitureFromExisting(
     copiedThumbnail = true;
   }
 
+  const thumbnailURL = thumbnailFilename
+    ? generateThumbnailURL(thumbnailFilename)
+    : undefined;
+
   try {
-    return await saveFurniture(
-      ownerId,
-      source.local_name,
-      source.file_name,
-      thumbnailFilename
-    );
+    return await db.transaction().execute(async (trx) => {
+      const furniture = await trx
+        .insertInto("furniture")
+        .values({
+          local_name: source.local_name,
+          file_name: source.file_name,
+          thumbnail: thumbnailURL,
+          scene_base_id: sceneBaseId,
+        })
+        .returning("id")
+        .executeTakeFirst();
+
+      if (!furniture) throw new Error("Failed to save furniture");
+
+      await trx
+        .insertInto("furniture_owner")
+        .values({
+          furniture_id: furniture.id,
+          owner_id: ownerId,
+        })
+        .execute();
+
+      if (extraInTx) await extraInTx(trx, furniture.id);
+
+      return furniture;
+    });
   } catch (err) {
-    // The DB insert failed. If we copied a thumbnail for this row, it is now
-    // an orphan on disk. Best-effort cleanup — log and continue throwing.
+    // The DB transaction failed. If we copied a thumbnail for this row, it is
+    // now an orphan on disk. Best-effort cleanup — log and continue throwing.
     if (copiedThumbnail && thumbnailFilename) {
       try {
         await deleteFile(path.join(THUMBNAIL_PATH, thumbnailFilename));
@@ -408,18 +450,22 @@ export async function copyThumbnail(sourceThumbnail: string): Promise<string> {
  * Replaces a furniture row's thumbnail file and updates the DB record.
  *
  * `sourceLocalName` is the temporary filename that multer wrote to
- * `THUMBNAIL_PATH`. This function renames it to a fresh UUID name, then
- * updates the `furniture.thumbnail` column with the new URL.
+ * `THUMBNAIL_PATH`. The new file is moved to a fresh UUID name, then the
+ * `furniture.thumbnail` column is updated, and only after the DB succeeds is
+ * the old thumbnail deleted from disk.
  *
- * If the row had a previous thumbnail, that file is deleted first. The
- * deletion error (if any) is logged but does not abort the rename — the new
- * thumbnail is always put in place regardless.
+ * Ordering matters: if the DB update is performed before the new file is in
+ * place, or if the old file is deleted before the DB update, a crash between
+ * steps would leave the row referencing a missing file (a "zombie" row). With
+ * this ordering the only failure mode is an orphan file on disk, which is
+ * recoverable by reconciliation.
  *
  * @param oldFurniture - The existing furniture row (used for its `id` and
  *   current `thumbnail` URL).
  * @param sourceLocalName - The temporary on-disk filename of the new thumbnail
  *   (the name multer assigned on upload, before UUID renaming).
- * @throws If the `fs.rename` of the new thumbnail fails.
+ * @throws If the `fs.rename` of the new thumbnail fails, or if the DB update
+ *   fails (the just-renamed file is best-effort cleaned up before rethrowing).
  */
 export async function replaceFurnitureThumbnail(
   oldFurniture: Furniture,
@@ -429,50 +475,46 @@ export async function replaceFurnitureThumbnail(
   const tempName = path.join(THUMBNAIL_PATH, sourceLocalName);
   const newPath = path.join(THUMBNAIL_PATH, newThumbnailName);
 
+  await new Promise<void>((resolve, reject) => {
+    fs.rename(tempName, newPath, (err) => {
+      if (err) {
+        console.error(`Error moving thumbnail file: ${err}`);
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+
+  const thumbnailURL = generateThumbnailURL(newThumbnailName);
+  try {
+    await db
+      .updateTable("furniture")
+      .set("thumbnail", thumbnailURL)
+      .where("id", "=", oldFurniture.id)
+      .executeTakeFirst();
+  } catch (err) {
+    try {
+      await deleteFile(newPath);
+    } catch (cleanupErr) {
+      console.error(
+        `Failed to clean up orphan thumbnail ${newThumbnailName}: ${cleanupErr}`
+      );
+    }
+    throw err;
+  }
+
   if (oldFurniture.thumbnail) {
     const oldPath = path.join(
       THUMBNAIL_PATH,
       path.basename(oldFurniture.thumbnail)
     );
-
-    await new Promise<void>((resolve, reject) => {
-      // Delete old thumbnail first. Failure is logged but does not block the
-      // rename so the new file is always placed even if cleanup partially fails.
-      fs.unlink(oldPath, (err) => {
-        if (err) {
-          console.error(
-            `Error deleting file ${oldFurniture.thumbnail}: ${err}`
-          );
-        }
-        fs.rename(tempName, newPath, (err) => {
-          if (err) {
-            console.error(`Error moving thumbnail file: ${err}`);
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      });
-    });
-  } else {
-    await new Promise<void>((resolve, reject) => {
-      fs.rename(tempName, newPath, (err) => {
-        if (err) {
-          console.error(`Error moving thumbnail file: ${err}`);
-          reject(err);
-          return;
-        }
-        resolve();
-      });
-    });
+    try {
+      await deleteFile(oldPath);
+    } catch (err) {
+      console.error(`Error deleting file ${oldFurniture.thumbnail}: ${err}`);
+    }
   }
-
-  const thumbnailURL = generateThumbnailURL(newThumbnailName);
-  await db
-    .updateTable("furniture")
-    .set("thumbnail", thumbnailURL)
-    .where("id", "=", oldFurniture.id)
-    .executeTakeFirst();
 }
 
 /**

@@ -92,35 +92,57 @@ export const getFurnitureController: RequestHandler<{ id: string }> = async (
  *
  * Responds with:
  * - `200` `{ id }` on success.
+ * - `400` if the required `file` field is missing or was rejected by multer's
+ *   filter (uploaded thumbnail, if any, is cleaned up).
  * - `500` on failure (uploaded files cleaned up).
  */
 export const postFurnitureController: RequestHandler = async (req, res) => {
   const playfab = (req as any).playfab;
-  if (req.files) {
-    const files = req.files as unknown as UploadedFiles;
-    const file = files.file[0];
-    const thumbnail = files.thumbnail?.[0];
-    try {
-      const furniture = await saveFurniture(
-        playfab.id,
-        file.filename,
-        file.originalname,
-        thumbnail?.filename
-      );
-      if (!furniture) {
-        throw new Error("Failed to save furniture");
-      }
-      res.status(200).json({ id: furniture.id });
-    } catch (error) {
-      console.error(error);
-      // Multer already wrote these files; clean them up so they don't orphan.
-      await deleteFile(file.path).catch(() => {});
-      if (thumbnail) {
-        await deleteFile(thumbnail.path).catch(() => {});
-      }
-      res.sendStatus(500);
-      return;
+  // Multer's `.fields()` may leave `req.files` undefined, set fields to empty
+  // arrays, or omit fields entirely when files were rejected by `fileFilter`.
+  // Normalise all those cases so we always reach an explicit response.
+  const files = (req.files ?? {}) as unknown as UploadedFiles;
+  const file = files.file?.[0];
+  const thumbnail = files.thumbnail?.[0];
+
+  if (!file) {
+    if (thumbnail) {
+      await deleteFile(thumbnail.path).catch(() => {});
     }
+    res.status(400).send("file required");
+    return;
+  }
+
+  // Optional form field; coerced to undefined if missing or not a string so
+  // multer/Express oddities (arrays, empty strings) don't end up in the DB.
+  const rawSceneBaseId = (req.body as Record<string, unknown> | undefined)
+    ?.scene_base_id;
+  const sceneBaseId =
+    typeof rawSceneBaseId === "string" && rawSceneBaseId.length > 0
+      ? rawSceneBaseId
+      : undefined;
+
+  try {
+    const furniture = await saveFurniture(
+      playfab.id,
+      file.filename,
+      file.originalname,
+      thumbnail?.filename,
+      sceneBaseId
+    );
+    if (!furniture) {
+      throw new Error("Failed to save furniture");
+    }
+    res.status(200).json({ id: furniture.id });
+  } catch (error) {
+    console.error(error);
+    // Multer already wrote these files; clean them up so they don't orphan.
+    await deleteFile(file.path).catch(() => {});
+    if (thumbnail) {
+      await deleteFile(thumbnail.path).catch(() => {});
+    }
+    res.sendStatus(500);
+    return;
   }
 };
 
@@ -415,14 +437,29 @@ export const postDuplicateFurnitureController: RequestHandler<{
       return;
     }
 
+    // The claimer's room (where the duplicate will live) has its own
+    // SceneBaseID, distinct from the source's. Coerce loose form values to
+    // undefined so we never store empty strings.
+    const rawSceneBaseId = (req.body as Record<string, unknown> | undefined)
+      ?.scene_base_id;
+    const sceneBaseId =
+      typeof rawSceneBaseId === "string" && rawSceneBaseId.length > 0
+        ? rawSceneBaseId
+        : undefined;
+
+    // Consume the token inside the same transaction as the clone insert so
+    // a crash between cannot leave the new furniture row visible without the
+    // token marked consumed (which would let the same claim be retried,
+    // accumulating duplicate rows).
     const furnitureCreated = await saveFurnitureFromExisting(
       playfab.id,
       furniture,
-      req.file?.filename
+      req.file?.filename,
+      sceneBaseId,
+      async (trx) => {
+        await consumeDuplicateToken(token, playfab.id, Date.now(), trx);
+      }
     );
-    // Mark consumed after a successful save — not before, so a failed save
-    // does not consume the token unnecessarily.
-    await consumeDuplicateToken(token, playfab.id, Date.now());
     res.status(200).json({ id: furnitureCreated.id });
   } catch (error) {
     console.error(error);

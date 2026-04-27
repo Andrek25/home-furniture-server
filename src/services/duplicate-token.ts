@@ -24,8 +24,12 @@
  * are cleaned up by `deleteFurnitureById` via FK cascade).
  */
 
-import { db } from "../config/db";
+import { db, DatabaseSchema } from "../config/db";
 import crypto from "node:crypto";
+import { Kysely, Transaction } from "kysely";
+
+/** Allows token writes to participate in a caller's transaction. */
+type Executor = Kysely<DatabaseSchema> | Transaction<DatabaseSchema>;
 
 /**
  * Creates a new duplicate token for a furniture item and persists it.
@@ -69,9 +73,18 @@ export async function getDuplicateToken(token: string) {
  * @param token - The token string being consumed.
  * @param consumedBy - PlayFab ID of the user claiming the duplicate.
  * @param consumedAt - Unix timestamp (ms) of the claim.
+ * @param executor - Optional Kysely instance or active transaction. Defaults to
+ *   `db`. Pass a transaction to bundle the consume with a related write (e.g.
+ *   the `saveFurnitureFromExisting` insert) so they commit or roll back as a
+ *   single atomic unit.
  */
-export async function consumeDuplicateToken(token: string, consumedBy: string, consumedAt: number) {
-  await db.updateTable("duplicate_token")
+export async function consumeDuplicateToken(
+  token: string,
+  consumedBy: string,
+  consumedAt: number,
+  executor: Executor = db
+) {
+  await executor.updateTable("duplicate_token")
     .set({ consumed_by: consumedBy, consumed_at: consumedAt })
     .where("token", "=", token)
     .execute();

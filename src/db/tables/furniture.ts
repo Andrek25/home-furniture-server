@@ -49,6 +49,17 @@ export interface FurnitureTable {
    * furniture records.
    */
   thumbnail?: string;
+  /**
+   * The PlayFab `SceneBaseID` of the room that originally contained this
+   * furniture (used to form the `RoomDesign_<SceneBaseID>` PlayFab key).
+   *
+   * Recorded server-side so the server can answer "is this row still
+   * referenced by any PlayFab room?" without enumerating PlayFab via admin
+   * API. Nullable: rows uploaded before the column was added (or by clients
+   * that don't send the field) have NULL here and are excluded from
+   * cross-platform reconciliation.
+   */
+  scene_base_id?: string;
   /** Row creation timestamp, set automatically by the database. */
   created_at?: Date;
   /** Row last-updated timestamp, set automatically by the database. */
