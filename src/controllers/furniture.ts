@@ -392,8 +392,9 @@ export const getDuplicateFurnitureController: RequestHandler<{
  * `owner_id` (the person who generated the token), not the caller's ID. This
  * ensures the source furniture still exists and belongs to the token issuer.
  *
- * The token is marked as consumed (`consumed_by`, `consumed_at`) after the
- * furniture is created, but it is NOT deleted — tokens remain reusable.
+ * The claim is appended to `duplicate_token_claim` and the token's
+ * `consumed_by` / `consumed_at` columns are updated, but the token is NOT
+ * deleted — tokens remain reusable.
  *
  * If the source furniture is missing or the save fails, any uploaded thumbnail
  * is deleted from disk before responding.
@@ -456,8 +457,8 @@ export const postDuplicateFurnitureController: RequestHandler<{
       furniture,
       req.file?.filename,
       sceneBaseId,
-      async (trx) => {
-        await consumeDuplicateToken(token, playfab.id, Date.now(), trx);
+      async (trx, furnitureId) => {
+        await consumeDuplicateToken(token, playfab.id, Date.now(), furnitureId, trx);
       }
     );
     res.status(200).json({ id: furnitureCreated.id });

@@ -14,14 +14,17 @@
  * Claimer calls POST /api/v1/duplicate-furniture/:token
  *   → getDuplicateToken()     — validates the token exists
  *   → (furniture is cloned)
- *   → consumeDuplicateToken() — records who claimed it and when
+ *   → consumeDuplicateToken() — appends a row to duplicate_token_claim
+ *                               and updates the token's last-claim columns
  * ```
  *
- * Tokens are **persistent and reusable** — `consumeDuplicateToken` writes
- * audit fields (`consumed_by`, `consumed_at`) but does NOT delete the row.
- * The same token can be claimed by multiple users. `deleteDuplicateToken` is
- * available for explicit removal (e.g. when a furniture is deleted, its tokens
- * are cleaned up by `deleteFurnitureById` via FK cascade).
+ * Tokens are **persistent and reusable** — `consumeDuplicateToken` does NOT
+ * delete the token row. The same token can be claimed by multiple users; each
+ * claim adds a row to `duplicate_token_claim` (the authoritative audit log).
+ * The legacy `consumed_by` / `consumed_at` columns on `duplicate_token` only
+ * reflect the latest claim. `deleteDuplicateToken` is available for explicit
+ * removal (e.g. when a furniture is deleted, its tokens are cleaned up by
+ * `deleteFurnitureById` via FK cascade, which also cascades the audit rows).
  */
 
 import { db, DatabaseSchema } from "../config/db";
@@ -67,12 +70,22 @@ export async function getDuplicateToken(token: string) {
 }
 
 /**
- * Records a claim against a token by writing the claimer's ID and the claim
- * timestamp. The token row is kept intact and remains usable for future claims.
+ * Records a claim against a token. Writes two things in lock-step:
+ *
+ * 1. Appends a row to `duplicate_token_claim` — the authoritative audit log,
+ *    one row per claim, never overwritten.
+ * 2. Updates `consumed_by` / `consumed_at` on the parent `duplicate_token`
+ *    row — kept for backward compatibility; reflects the most recent claim
+ *    only and is intentionally lossy. New code should query the audit table.
+ *
+ * The token row is kept intact and remains usable for future claims.
  *
  * @param token - The token string being consumed.
  * @param consumedBy - PlayFab ID of the user claiming the duplicate.
  * @param consumedAt - Unix timestamp (ms) of the claim.
+ * @param furnitureId - ID of the cloned `furniture` row produced by this
+ *   claim. Stored on the audit row so the full chain (token → claim → clone)
+ *   can be traced.
  * @param executor - Optional Kysely instance or active transaction. Defaults to
  *   `db`. Pass a transaction to bundle the consume with a related write (e.g.
  *   the `saveFurnitureFromExisting` insert) so they commit or roll back as a
@@ -82,9 +95,28 @@ export async function consumeDuplicateToken(
   token: string,
   consumedBy: string,
   consumedAt: number,
+  furnitureId: number,
   executor: Executor = db
 ) {
-  await executor.updateTable("duplicate_token")
+  const tokenRow = await executor
+    .selectFrom("duplicate_token")
+    .select("id")
+    .where("token", "=", token)
+    .executeTakeFirst();
+  if (!tokenRow) throw new Error(`consumeDuplicateToken: token not found`);
+
+  await executor
+    .insertInto("duplicate_token_claim")
+    .values({
+      token_id: tokenRow.id,
+      claimed_by: consumedBy,
+      claimed_at: consumedAt,
+      furniture_id: furnitureId,
+    })
+    .execute();
+
+  await executor
+    .updateTable("duplicate_token")
     .set({ consumed_by: consumedBy, consumed_at: consumedAt })
     .where("token", "=", token)
     .execute();

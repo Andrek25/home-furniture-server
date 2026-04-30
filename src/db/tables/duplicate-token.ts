@@ -6,10 +6,13 @@
  * for the full create → get → consume lifecycle.
  *
  * ## Persistence model
- * Tokens are **never deleted on claim**. After a successful claim,
- * `consumed_by` and `consumed_at` are written for auditing, but the row
- * remains in the table and the token string stays valid for future claims.
- * Rows are only removed when the parent furniture is deleted (FK cascade).
+ * Tokens are **never deleted on claim**. After a successful claim, an audit
+ * row is appended to `duplicate_token_claim` (the authoritative history) and
+ * `consumed_by` / `consumed_at` here are updated to reflect the most recent
+ * claim only — these two columns are kept for backward compatibility and are
+ * intentionally lossy. The token string stays valid for future claims. Rows
+ * are only removed when the parent furniture is deleted (FK cascade), which
+ * also cascades the audit rows.
  *
  * ## Expiry
  * `expires` is a Unix timestamp (ms) set when the token is created. It is

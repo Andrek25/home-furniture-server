@@ -45,10 +45,15 @@ just-renamed file before rethrowing. Zombie-row case eliminated.
 that calls `consumeDuplicateToken(..., trx)` inside the same transaction as
 the clone insert. Closes the retry-creates-duplicates abuse vector.
 
-### 3. `consumeDuplicateToken` is lossy
-Schema has only one `consumed_by`/`consumed_at` pair, but tokens are reusable
-(`duplicate-token.ts:21`). Each new claim overwrites the prior audit fields.
-Cannot reconstruct full claim history.
+### 3. ~~`consumeDuplicateToken` is lossy~~ — fixed
+New `duplicate_token_claim` table (migration `1739436042234`) is the
+authoritative append-only audit log: one row per claim, never overwritten,
+recording `claimed_by`, `claimed_at`, and the cloned `furniture_id`.
+`consumeDuplicateToken` writes both the audit row and the legacy
+`consumed_by`/`consumed_at` columns inside the same transaction as the
+clone insert; the legacy columns are kept for backward compatibility and
+remain intentionally lossy. `deleteFurnitureById` cleans up audit rows
+alongside the parent tokens.
 
 ### 4. ~~`expires` not enforced~~ — intentional
 Tokens are intentionally persistent and never expire. The `expires` column is

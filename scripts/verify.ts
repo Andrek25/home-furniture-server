@@ -9,6 +9,7 @@ import {
   replaceFurnitureFile,
   getFurnitureById,
 } from "../src/services/furniture";
+import { consumeDuplicateToken } from "../src/services/duplicate-token";
 
 initPaths();
 initDatabase();
@@ -179,6 +180,65 @@ async function testUniqueOwnership() {
   assert(rejected, "unique constraint enforced");
 }
 
+async function testTokenClaimAudit() {
+  console.log("\n[Test 8] consumeDuplicateToken appends one audit row per claim");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "x.zip");
+  const a = await saveFurniture("userA", "x.zip", "room.zip");
+  const tokenStr = "tok-audit";
+  await db
+    .insertInto("duplicate_token")
+    .values({ token: tokenStr, furniture_id: a.id, owner_id: "userA", expires: 9999999999999 })
+    .execute();
+
+  // Two consecutive claims by different users, mimicking the controller flow
+  // (each claim accompanies a clone insert; we fake the clone IDs).
+  const cloneB = await saveFurniture("userB", "x.zip", "room.zip");
+  await consumeDuplicateToken(tokenStr, "userB", 1000, cloneB.id);
+
+  const cloneC = await saveFurniture("userC", "x.zip", "room.zip");
+  await consumeDuplicateToken(tokenStr, "userC", 2000, cloneC.id);
+
+  const tokenRow = await db.selectFrom("duplicate_token").selectAll().where("token", "=", tokenStr).executeTakeFirstOrThrow();
+  const claims = await db
+    .selectFrom("duplicate_token_claim")
+    .selectAll()
+    .where("token_id", "=", tokenRow.id)
+    .orderBy("claimed_at", "asc")
+    .execute();
+
+  assert(claims.length === 2, "two audit rows after two claims");
+  assert(claims[0].claimed_by === "userB" && claims[0].furniture_id === cloneB.id, "first claim audit preserved");
+  assert(claims[1].claimed_by === "userC" && claims[1].furniture_id === cloneC.id, "second claim audit preserved");
+  assert(tokenRow.consumed_by === "userC" && Number(tokenRow.consumed_at) === 2000, "legacy columns reflect last claim");
+}
+
+async function testTokenClaimCascade() {
+  console.log("\n[Test 9] Deleting source furniture wipes token claim audit rows");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "y.zip");
+  const a = await saveFurniture("userA", "y.zip", "room.zip");
+  const tokenStr = "tok-cascade";
+  await db
+    .insertInto("duplicate_token")
+    .values({ token: tokenStr, furniture_id: a.id, owner_id: "userA", expires: 9999999999999 })
+    .execute();
+  const cloneB = await saveFurniture("userB", "y.zip", "room.zip");
+  await consumeDuplicateToken(tokenStr, "userB", 1000, cloneB.id);
+
+  const beforeClaims = await db.selectFrom("duplicate_token_claim").select("id").execute();
+  assert(beforeClaims.length === 1, "audit row exists before source delete");
+
+  await deleteFurnitureById(a.id, { ownerId: "userA" });
+
+  const afterTokens = await db.selectFrom("duplicate_token").select("id").where("token", "=", tokenStr).execute();
+  const afterClaims = await db.selectFrom("duplicate_token_claim").select("id").execute();
+  assert(afterTokens.length === 0, "token deleted with source");
+  assert(afterClaims.length === 0, "audit rows cleaned up alongside token");
+}
+
 async function main() {
   try {
     await testSharedDelete();
@@ -188,6 +248,8 @@ async function main() {
     await testTokenCleanup();
     await testOwnershipIsolation();
     await testUniqueOwnership();
+    await testTokenClaimAudit();
+    await testTokenClaimCascade();
     console.log("\ndone.");
   } finally {
     await reset();

@@ -17,6 +17,7 @@ import { initPaths, ROOT_PATH } from "./path";
 import { FurnitureTable } from "../db/tables/furniture";
 import { FurnitureOwnerTable } from "../db/tables/furniture-owner";
 import { DuplicateTokenTable } from "../db/tables/duplicate-token";
+import { DuplicateTokenClaimTable } from "../db/tables/duplicate-token-claim";
 
 /**
  * Kysely schema mapping table names to their row types.
@@ -27,6 +28,7 @@ export interface DatabaseSchema {
   furniture: FurnitureTable;
   furniture_owner: FurnitureOwnerTable;
   duplicate_token: DuplicateTokenTable;
+  duplicate_token_claim: DuplicateTokenClaimTable;
 }
 
 /**

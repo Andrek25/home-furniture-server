@@ -318,8 +318,19 @@ export async function deleteFurnitureById(
     const deleted = await query.executeTakeFirst();
 
     if (deleted) {
-      // Explicitly delete tokens even though the FK cascade would handle it —
-      // belt-and-suspenders given the table was retrofitted with FK in a later migration.
+      // Explicitly delete tokens and their audit rows even though the FK
+      // cascades would handle both — belt-and-suspenders, since SQLite ignores
+      // FK constraints unless the foreign_keys pragma is on (which we don't
+      // currently enable). Drop audit rows first so we never leave them
+      // pointing at a non-existent token.
+      await trx
+        .deleteFrom("duplicate_token_claim")
+        .where("token_id", "in", trx
+          .selectFrom("duplicate_token")
+          .select("id")
+          .where("furniture_id", "=", furnitureId)
+        )
+        .execute();
       await trx
         .deleteFrom("duplicate_token")
         .where("furniture_id", "=", furnitureId)
