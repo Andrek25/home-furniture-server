@@ -60,10 +60,11 @@ vestigial; do not propose enforcement or a cleanup cron.
 front, and responds `400 "file required"` (cleaning up any orphan thumbnail)
 when multer's `fileFilter` rejected the upload.
 
-### 7. No disk ↔ DB drift detector
-Per-op cleanup is correct, but historical orphans from pre-fix bugs may sit
-on disk. No scheduled scan compares `FURNITURE_PATH`/`THUMBNAIL_PATH` against
-the DB.
+### 7. ~~No disk ↔ DB drift detector~~ — fixed
+`scripts/reconcile.ts` (run via `pnpm reconcile`) reports drift in both
+directions. Default mode is dry-run; `--apply` deletes orphan files only.
+Zombie rows are report-only — a `furniture.id` may still be referenced by a
+PlayFab room JSON, so silent DB deletion would make the 404 permanent.
 
 ## Cross-platform (PlayFab ↔ Render) risks STILL active
 
@@ -142,8 +143,9 @@ Cannot detect with SQL alone:
   `furniture_owner.owner_id`.) Unity client must start sending
   `scene_base_id` as a form field on `POST /api/v1/furniture` and
   `POST /api/v1/duplicate-furniture/:token` for new rows to be reconcilable.
-- **P4** — Disk-scan reconciliation script (log-only first, then enable
-  deletion). ~2 hrs.
+- ~~**P4** — Disk-scan reconciliation script (log-only first, then enable
+  deletion).~~ Done. `scripts/reconcile.ts` (dry-run by default,
+  `--apply` deletes orphan files; zombie rows reported only). Closes #7.
 - **P5** — Self-healing 404 on Unity client: delete PlayFab key on download
   404. Closes CP-2 over time. Client-side.
 - **P6** — Pending/committed flag for two-phase commit on uploads. Closes

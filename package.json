@@ -9,6 +9,7 @@
     "migrate:unsafe": "kysely migrate:rollback --all && kysely migrate:latest",
     "migrate": "kysely migrate:latest",
     "selfhost": "cloudflared tunnel --url http://localhost:4000",
+    "reconcile": "tsx --env-file=.env scripts/reconcile.ts",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "keywords": [],

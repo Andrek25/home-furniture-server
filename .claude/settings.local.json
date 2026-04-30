@@ -6,7 +6,11 @@
       "Bash(node -e ' *)",
       "Bash(npx tsx *)",
       "Bash(pnpm test *)",
-      "Bash(echo \"---exit: $?---\")"
+      "Bash(echo \"---exit: $?---\")",
+      "Bash(pnpm reconcile *)",
+      "Bash(pnpm tsx *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
