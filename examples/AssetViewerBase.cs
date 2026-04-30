@@ -553,6 +553,34 @@ private static extern void OpenFileDialogAndUploadJS(
             CustomLoadModelFromURL(uwr);
         }
 
+        // P5 self-healing load. Use this overload whenever sceneBaseId is known
+        // (i.e. the load was triggered by reading a RoomDesign_<sceneBaseId> key
+        // out of PlayFab). HEADs the server first; on 404 the stale PlayFab key
+        // is deleted so the room stops appearing in the user's list.
+        protected void LoadModelFromFileWithIdFromPrivateServer(string id, string sceneBaseId)
+        {
+            if (string.IsNullOrEmpty(sceneBaseId))
+            {
+                LoadModelFromFileWithIdFromPrivateServer(id);
+                return;
+            }
+            StartCoroutine(UserAccountManager.m_FurnitureNetwork.CheckFurnitureExists(
+                id,
+                onFound: () => LoadModelFromFileWithIdFromPrivateServer(id),
+                onMissing: () =>
+                {
+                    Debug.LogWarning($"Furniture {id} no longer exists on server; removing stale PlayFab key RoomDesign_{sceneBaseId}");
+                    UserAccountManager.Instance.RemoveUserData("RoomDesign_" + sceneBaseId);
+                    SetLoading(false);
+                },
+                onError: (err) =>
+                {
+                    Debug.LogError($"Existence check failed for furniture {id}: {err}; attempting load anyway");
+                    LoadModelFromFileWithIdFromPrivateServer(id);
+                }
+            ));
+        }
+
         //protected void 
 
         /// <summary>
@@ -654,7 +682,7 @@ private static extern void OpenFileDialogAndUploadJS(
                 //}
 
 
-                LoadModelFromFileWithIdFromPrivateServer(urlLink);
+                LoadModelFromFileWithIdFromPrivateServer(urlLink, SessionInfo.RoomData?.RoomWrapper?.SceneBaseID);
             }
             else if (isDriveApiNew && isLoadedBefore && isLoadAutomatically)
             {

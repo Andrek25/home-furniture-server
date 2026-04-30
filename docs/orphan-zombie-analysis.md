@@ -147,7 +147,11 @@ Cannot detect with SQL alone:
   deletion).~~ Done. `scripts/reconcile.ts` (dry-run by default,
   `--apply` deletes orphan files; zombie rows reported only). Closes #7.
 - **P5** — Self-healing 404 on Unity client: delete PlayFab key on download
-  404. Closes CP-2 over time. Client-side.
+  404. Closes CP-2 over time. Pattern + helpers landed in `examples/`
+  (`FurnitureNetwork.CheckFurnitureExists`, two-arg
+  `LoadModelFromFileWithIdFromPrivateServer`); migration brief for the
+  full Unity repo is in `docs/p5-unity-client-prompt.md`. No server
+  changes — Express auto-handles `HEAD` on the existing GET route.
 - **P6** — Pending/committed flag for two-phase commit on uploads. Closes
   CP-1 and CP-5. ~3 hrs.
 - **P7** — Audit log table for every cross-system op. ~2 hrs.

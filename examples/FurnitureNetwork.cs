@@ -55,6 +55,30 @@ namespace FurnitureNetwork
             return webRequest;
         }
 
+        // P5 self-heal: HEAD /api/v1/furniture/{id} so callers can distinguish a
+        // missing row (404 â†’ safe to delete the corresponding PlayFab room key)
+        // from a transient network/auth failure (do not delete).
+        public IEnumerator CheckFurnitureExists(string id, Action onFound = null, Action onMissing = null, Action<string> onError = null)
+        {
+            using UnityWebRequest webRequest = UnityWebRequest.Head($"{apiUri}/api/v1/furniture/{id}");
+            webRequest.SetRequestHeader("x-playfab-auth-token", token);
+
+            yield return webRequest.SendWebRequest();
+
+            if (webRequest.result == UnityWebRequest.Result.Success)
+            {
+                onFound?.Invoke();
+            }
+            else if (webRequest.responseCode == (long)HttpStatusCode.NotFound)
+            {
+                onMissing?.Invoke();
+            }
+            else
+            {
+                onError?.Invoke($"{webRequest.responseCode} {webRequest.error}");
+            }
+        }
+
         public IEnumerator UploadFurniture(string filePath, string thumbnailPath = null, Action<UploadFurnitureMessage> callback = null, Action<string> errorCallback = null)
         {
             byte[] fileData = System.IO.File.ReadAllBytes(filePath);
@@ -262,7 +286,7 @@ public IEnumerator DuplicateFurniture(string id, Action<DuplicateTokenMessage> c
             {
                 //thumbnailData = texture.EncodeToPNG();
                 // For JPG instead:
-                thumbnailData = texture.EncodeToPNG(); // quality 0–100
+                thumbnailData = texture.EncodeToPNG(); // quality 0ï¿½100
             }
             catch (System.Exception ex)
             {
