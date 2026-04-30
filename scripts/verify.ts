@@ -8,6 +8,8 @@ import {
   deleteFurnitureById,
   replaceFurnitureFile,
   getFurnitureById,
+  commitFurniture,
+  findUncommittedFurnitureOlderThan,
 } from "../src/services/furniture";
 import { consumeDuplicateToken } from "../src/services/duplicate-token";
 
@@ -239,6 +241,67 @@ async function testTokenClaimCascade() {
   assert(afterClaims.length === 0, "audit rows cleaned up alongside token");
 }
 
+async function testPendingUploadAndCommit() {
+  console.log("\n[Test 10] Pending upload defaults committed=0; commitFurniture flips it");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "p.zip");
+  const a = await saveFurniture("userA", "p.zip", "room.zip", undefined, undefined, true);
+  const beforeRow = await db.selectFrom("furniture").select(["committed"]).where("id", "=", a.id).executeTakeFirstOrThrow();
+  assert(Number(beforeRow.committed) === 0, "pending upload inserted with committed=0");
+
+  const ok = await commitFurniture(a.id, "userA");
+  assert(ok === true, "commitFurniture returned true for owner");
+  const afterRow = await db.selectFrom("furniture").select(["committed"]).where("id", "=", a.id).executeTakeFirstOrThrow();
+  assert(Number(afterRow.committed) === 1, "row is committed=1 after commit");
+
+  // Idempotent
+  const okAgain = await commitFurniture(a.id, "userA");
+  assert(okAgain === true, "second commit is a no-op success");
+
+  // Non-owner cannot commit
+  const okOther = await commitFurniture(a.id, "userB");
+  assert(okOther === false, "non-owner commit returns false");
+}
+
+async function testSweeperFiltersByAgeAndCommittedFlag() {
+  console.log("\n[Test 11] Sweeper picks up only uncommitted rows past the age cutoff");
+  await reset();
+
+  makeFile(FURNITURE_PATH, "old-pending.zip");
+  makeFile(FURNITURE_PATH, "fresh-pending.zip");
+  makeFile(FURNITURE_PATH, "old-committed.zip");
+
+  const oldPending = await saveFurniture("userA", "old-pending.zip", "room.zip", undefined, undefined, true);
+  const freshPending = await saveFurniture("userA", "fresh-pending.zip", "room.zip", undefined, undefined, true);
+  const oldCommitted = await saveFurniture("userA", "old-committed.zip", "room.zip", undefined, undefined, false);
+
+  // Backdate the two "old" rows by 30 minutes. Use SQLite's "YYYY-MM-DD HH:MM:SS"
+  // format so it compares lexicographically against datetime('now', ...) inside
+  // findUncommittedFurnitureOlderThan.
+  const past = new Date(Date.now() - 30 * 60 * 1000)
+    .toISOString()
+    .replace("T", " ")
+    .slice(0, 19);
+  await db.updateTable("furniture").set({ created_at: past as any }).where("id", "=", oldPending.id).execute();
+  await db.updateTable("furniture").set({ created_at: past as any }).where("id", "=", oldCommitted.id).execute();
+
+  const candidates = await findUncommittedFurnitureOlderThan(10);
+  assert(candidates.includes(oldPending.id), "old pending row picked up");
+  assert(!candidates.includes(freshPending.id), "fresh pending row excluded by age");
+  assert(!candidates.includes(oldCommitted.id), "old committed row excluded by flag");
+  assert(candidates.length === 1, "exactly one candidate");
+
+  // Sweep it
+  await deleteFurnitureById(oldPending.id);
+  assert(!exists(FURNITURE_PATH, "old-pending.zip"), "swept file is gone from disk");
+  assert(exists(FURNITURE_PATH, "fresh-pending.zip"), "fresh pending file preserved");
+  assert(exists(FURNITURE_PATH, "old-committed.zip"), "committed file preserved");
+
+  const remaining = await db.selectFrom("furniture").select("id").execute();
+  assert(remaining.length === 2, "only swept row removed from DB");
+}
+
 async function main() {
   try {
     await testSharedDelete();
@@ -250,6 +313,8 @@ async function main() {
     await testUniqueOwnership();
     await testTokenClaimAudit();
     await testTokenClaimCascade();
+    await testPendingUploadAndCommit();
+    await testSweeperFiltersByAgeAndCommittedFlag();
     console.log("\ndone.");
   } finally {
     await reset();

@@ -11,7 +11,8 @@
       "Bash(pnpm tsx *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(pnpm migrate *)"
+      "Bash(pnpm migrate *)",
+      "Bash(pnpm sweep *)"
     ]
   }
 }

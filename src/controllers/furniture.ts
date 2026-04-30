@@ -26,6 +26,7 @@ import {
   consumeDuplicateToken,
 } from "../services/duplicate-token";
 import {
+  commitFurniture,
   deleteFurnitureById,
   getFurnitureById,
   getFurnitureOwners,
@@ -41,6 +42,19 @@ import { type UploadedFiles } from "../config/multer";
 import { deleteFile } from "../utils/file";
 import { removeThumbnailURL } from "../utils/thumbnails";
 import { ENV } from "../config/env";
+
+/**
+ * Coerces an arbitrary form-data value (always a string when present) into a
+ * boolean for the `pending` two-phase-commit flag. Treats `"true"` and `"1"`
+ * (case-insensitive) as true; everything else, including missing, is false.
+ * Default-false matters for backward compatibility — old clients that don't
+ * send the field upload as committed=1 and never need to call /commit.
+ */
+function parsePendingFlag(raw: unknown): boolean {
+  if (typeof raw !== "string") return false;
+  const v = raw.trim().toLowerCase();
+  return v === "true" || v === "1";
+}
 
 /**
  * `GET /api/v1/furniture/:id`
@@ -122,13 +136,22 @@ export const postFurnitureController: RequestHandler = async (req, res) => {
       ? rawSceneBaseId
       : undefined;
 
+  // P6 two-phase commit: when the client sends `pending=true` (or "1") it is
+  // promising to call POST /api/v1/furniture/:id/commit after the
+  // corresponding PlayFab key save completes. The row is created with
+  // committed=0 and the sweeper deletes it if no commit arrives in time.
+  const pending = parsePendingFlag(
+    (req.body as Record<string, unknown> | undefined)?.pending
+  );
+
   try {
     const furniture = await saveFurniture(
       playfab.id,
       file.filename,
       file.originalname,
       thumbnail?.filename,
-      sceneBaseId
+      sceneBaseId,
+      pending
     );
     if (!furniture) {
       throw new Error("Failed to save furniture");
@@ -452,6 +475,10 @@ export const postDuplicateFurnitureController: RequestHandler<{
     // a crash between cannot leave the new furniture row visible without the
     // token marked consumed (which would let the same claim be retried,
     // accumulating duplicate rows).
+    const pending = parsePendingFlag(
+      (req.body as Record<string, unknown> | undefined)?.pending
+    );
+
     const furnitureCreated = await saveFurnitureFromExisting(
       playfab.id,
       furniture,
@@ -459,7 +486,8 @@ export const postDuplicateFurnitureController: RequestHandler<{
       sceneBaseId,
       async (trx, furnitureId) => {
         await consumeDuplicateToken(token, playfab.id, Date.now(), furnitureId, trx);
-      }
+      },
+      pending
     );
     res.status(200).json({ id: furnitureCreated.id });
   } catch (error) {
@@ -512,3 +540,39 @@ export const getFurnitureThumbnailController: RequestHandler<{
     res.sendStatus(500);
   }
 };
+
+/**
+ * `POST /api/v1/furniture/:id/commit`
+ *
+ * Marks a previously-pending furniture row as committed (P6 second phase).
+ * The Unity client calls this after `POST /api/v1/furniture` (with
+ * `pending=true`) and a successful `RoomDesign_<SceneBaseID>` write into
+ * PlayFab. If commit never arrives, the sweeper deletes the row.
+ *
+ * Idempotent: calling commit on an already-committed row is a no-op success.
+ *
+ * Responds with:
+ * - `400` if `:id` is not a valid integer.
+ * - `404` if the row does not exist or the caller does not own it.
+ * - `200` on success (or already committed).
+ */
+export const postCommitFurnitureController: RequestHandler<{ id: string }> =
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).send("You must provide a valid id");
+      return;
+    }
+    const playfab = (req as any).playfab;
+    try {
+      const ok = await commitFurniture(id, playfab.id);
+      if (!ok) {
+        res.status(404).send("Furniture not found or you don't own it");
+        return;
+      }
+      res.sendStatus(200);
+    } catch (error) {
+      console.error(error);
+      res.sendStatus(500);
+    }
+  };

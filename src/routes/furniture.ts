@@ -19,6 +19,7 @@
  * | DELETE | /api/v1/furniture/:id | — | `deleteFurnitureController` |
  * | POST   | /api/v1/furniture/:id/file | `uploadFurnitureFile` | `patchFurnitureFileController` |
  * | POST   | /api/v1/furniture/:id/thumbnail | `uploadFurnitureThumbnail` | `patchFurnitureThumbnailController` |
+ * | POST   | /api/v1/furniture/:id/commit | — | `postCommitFurnitureController` |
  * | GET    | /api/v1/furniture/:id/owners | — | `getFurnitureOwnersController` |
  * | GET    | /api/v1/furniture/:id/thumbnail | — | `getFurnitureThumbnailController` |
  * | GET    | /api/v1/duplicate-furniture/:id | — | `getDuplicateFurnitureController` |
@@ -36,7 +37,8 @@ import {
   getFurnitureOwnersController,
   postDuplicateFurnitureController,
   getFurnitureThumbnailController,
-  getDuplicateFurnitureController
+  getDuplicateFurnitureController,
+  postCommitFurnitureController
 } from "../controllers/furniture";
 import {
   uploadFurniture,
@@ -71,6 +73,7 @@ export function FurnitureRoutes() {
     furnitureRouter.delete("/api/v1/furniture/:id", deleteFurnitureController);
     furnitureRouter.post("/api/v1/furniture/:id/file", uploadFurnitureFile, patchFurnitureFileController);
     furnitureRouter.post("/api/v1/furniture/:id/thumbnail", uploadFurnitureThumbnail, patchFurnitureThumbnailController);
+    furnitureRouter.post("/api/v1/furniture/:id/commit", postCommitFurnitureController);
     furnitureRouter.get("/api/v1/furniture/:id/owners", getFurnitureOwnersController);
     furnitureRouter.get("/api/v1/furniture/:id/thumbnail", getFurnitureThumbnailController);
   }

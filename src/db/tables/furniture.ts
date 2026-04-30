@@ -60,6 +60,18 @@ export interface FurnitureTable {
    * cross-platform reconciliation.
    */
   scene_base_id?: string;
+  /**
+   * Two-phase commit flag (P6). `0` = pending: the client uploaded but has
+   * not yet confirmed the cross-platform write (PlayFab key save) succeeded.
+   * `1` = committed: the row is permanent. Defaults to `1` on insert so
+   * clients that haven't adopted the protocol behave as before. The sweeper
+   * (`scripts/sweep-uncommitted.ts`) deletes pending rows older than the
+   * configured threshold.
+   *
+   * Stored as INTEGER 0/1 because SQLite has no native boolean. Treated as
+   * a boolean in TypeScript via `0 | 1`.
+   */
+  committed?: 0 | 1;
   /** Row creation timestamp, set automatically by the database. */
   created_at?: Date;
   /** Row last-updated timestamp, set automatically by the database. */

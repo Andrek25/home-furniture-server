@@ -29,7 +29,7 @@ import {
   removeThumbnailURL,
 } from "../utils/thumbnails";
 import { deleteFile } from "../utils/file";
-import { Kysely, Transaction } from "kysely";
+import { Kysely, Transaction, sql } from "kysely";
 
 /** Allows service functions to be called both inside and outside a transaction. */
 type Executor = Kysely<DatabaseSchema> | Transaction<DatabaseSchema>;
@@ -105,6 +105,11 @@ export async function getFurnitureById(
  * @param sceneBaseId - Optional PlayFab `SceneBaseID` of the room that owns
  *   this furniture; required for cross-platform reconciliation but stored as
  *   NULL when the client doesn't send it (older client builds).
+ * @param pending - When `true`, the row is inserted with `committed=0` and
+ *   the client must call `commitFurniture` after the corresponding PlayFab
+ *   key has been written. Pending rows are eligible for sweeper cleanup
+ *   after the configured age threshold. Defaults to `false` for backward
+ *   compatibility.
  * @returns An object containing the new furniture's `id`.
  * @throws If the database insert fails.
  */
@@ -113,7 +118,8 @@ export async function saveFurniture(
   localName: string,
   fileName: string,
   thumbnail?: string,
-  sceneBaseId?: string
+  sceneBaseId?: string,
+  pending: boolean = false
 ) {
   const thumbnailURL = thumbnail ? generateThumbnailURL(thumbnail) : undefined;
 
@@ -125,6 +131,7 @@ export async function saveFurniture(
         file_name: fileName,
         thumbnail: thumbnailURL,
         scene_base_id: sceneBaseId,
+        committed: pending ? 0 : 1,
       })
       .returning("id")
       .executeTakeFirst();
@@ -179,7 +186,8 @@ export async function saveFurnitureFromExisting(
   extraInTx?: (
     trx: Transaction<DatabaseSchema>,
     furnitureId: number
-  ) => Promise<void>
+  ) => Promise<void>,
+  pending: boolean = false
 ): Promise<{ id: number }> {
   let thumbnailFilename: string | undefined;
   let copiedThumbnail = false;
@@ -206,6 +214,7 @@ export async function saveFurnitureFromExisting(
           file_name: source.file_name,
           thumbnail: thumbnailURL,
           scene_base_id: sceneBaseId,
+          committed: pending ? 0 : 1,
         })
         .returning("id")
         .executeTakeFirst();
@@ -372,6 +381,60 @@ export async function deleteFurnitureById(
   }
 
   return furniture;
+}
+
+/**
+ * Flips a furniture row from pending (`committed=0`) to committed
+ * (`committed=1`). Idempotent — repeated calls are no-ops once the row is
+ * already committed.
+ *
+ * The caller must own the row. The owner check + UPDATE happens in a single
+ * statement so we don't need a separate transaction.
+ *
+ * @param furnitureId - Primary key of the row to commit.
+ * @param ownerId - PlayFab ID of the caller; must be in `furniture_owner`.
+ * @returns `true` if a row was matched (committed or already-committed).
+ *   `false` if the id does not exist or the caller does not own it — the
+ *   controller should respond 404.
+ */
+export async function commitFurniture(
+  furnitureId: number,
+  ownerId: string
+): Promise<boolean> {
+  const result = await db
+    .updateTable("furniture")
+    .set({ committed: 1 })
+    .where("id", "=", furnitureId)
+    .where(({ exists, selectFrom }) =>
+      exists(
+        selectFrom("furniture_owner")
+          .select(["id"])
+          .whereRef("furniture_owner.furniture_id", "=", "furniture.id")
+          .where("owner_id", "=", ownerId)
+      )
+    )
+    .executeTakeFirst();
+  return Number(result.numUpdatedRows ?? 0n) > 0;
+}
+
+/**
+ * Returns the IDs of pending furniture rows older than `olderThanMinutes`,
+ * the sweeper input. Selects only the id; `deleteFurnitureById` reads the
+ * rest before deleting.
+ */
+export async function findUncommittedFurnitureOlderThan(
+  olderThanMinutes: number
+): Promise<number[]> {
+  // Use SQLite's datetime() so the cutoff is computed inside the DB and we
+  // never need to bind a JS Date (better-sqlite3 rejects Date as a parameter).
+  const modifier = `-${olderThanMinutes} minutes`;
+  const rows = await db
+    .selectFrom("furniture")
+    .select("id")
+    .where("committed", "=", 0)
+    .where("created_at", "<", sql<string>`datetime('now', ${modifier})`)
+    .execute();
+  return rows.map((r) => r.id);
 }
 
 /**

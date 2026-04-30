@@ -157,8 +157,15 @@ Cannot detect with SQL alone:
   `LoadModelFromFileWithIdFromPrivateServer`); migration brief for the
   full Unity repo is in `docs/p5-unity-client-prompt.md`. No server
   changes — Express auto-handles `HEAD` on the existing GET route.
-- **P6** — Pending/committed flag for two-phase commit on uploads. Closes
-  CP-1 and CP-5. ~3 hrs.
+- **P6** — Pending/committed flag for two-phase commit on uploads. Server
+  side landed: `furniture.committed` column (migration `1739436042235`),
+  `pending=true` form field on the two upload controllers, new
+  `POST /api/v1/furniture/:id/commit` endpoint, and
+  `scripts/sweep-uncommitted.ts` (`pnpm sweep`). Backward-compatible
+  default — clients that don't send `pending` still upload as committed.
+  Unity migration brief in `docs/p6-unity-client-prompt.md`. Closes CP-1
+  once Unity adopts the protocol. **CP-5 was left out of scope** — token
+  orphans are cheap (a row, no file, no cross-platform invisibility).
 - **P7** — Audit log table for every cross-system op. ~2 hrs.
 
 Note on the duplicate-on-claim model: the original "invited user gets zombie
