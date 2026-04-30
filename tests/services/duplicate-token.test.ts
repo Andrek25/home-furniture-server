@@ -61,16 +61,68 @@ test("getDuplicateToken returns the row for a known token, undefined otherwise",
   assert.equal(missing, undefined);
 });
 
-test("consumeDuplicateToken sets consumed_by and consumed_at", async () => {
+test("consumeDuplicateToken updates legacy columns AND appends an audit row", async () => {
   const { id } = await makeFurniture();
   const token = await createDuplicateToken(id, "userA", Date.now() + 60_000);
   const consumedAt = Date.now();
 
-  await consumeDuplicateToken(token, "userB", consumedAt);
+  // Pretend the controller just inserted a clone with id `id` (in real flow
+  // this would be a different id; here we just need a valid furniture_id).
+  await consumeDuplicateToken(token, "userB", consumedAt, id);
 
   const row = await getDuplicateToken(token);
   assert.equal(row!.consumed_by, "userB");
   assert.equal(Number(row!.consumed_at), consumedAt);
+
+  const audit = await db
+    .selectFrom("duplicate_token_claim")
+    .selectAll()
+    .where("token_id", "=", row!.id)
+    .execute();
+  assert.equal(audit.length, 1, "exactly one audit row");
+  assert.equal(audit[0].claimed_by, "userB");
+  assert.equal(Number(audit[0].claimed_at), consumedAt);
+  assert.equal(audit[0].furniture_id, id);
+});
+
+test("consumeDuplicateToken throws when the token does not exist", async () => {
+  await assert.rejects(
+    () => consumeDuplicateToken("not-a-real-token", "userB", Date.now(), 1),
+    /token not found/
+  );
+});
+
+test("multiple claims on the same token preserve full audit history", async () => {
+  const { id: source } = await makeFurniture();
+  const token = await createDuplicateToken(source, "userA", Date.now() + 60_000);
+
+  // Each claim accompanies its own clone insert — fake the clone IDs by
+  // creating extra furniture rows.
+  makeFile(FURNITURE_PATH, "clone-b.zip");
+  const cloneB = await saveFurniture("userB", "clone-b.zip", "room.zip");
+  await consumeDuplicateToken(token, "userB", 1000, cloneB.id);
+
+  makeFile(FURNITURE_PATH, "clone-c.zip");
+  const cloneC = await saveFurniture("userC", "clone-c.zip", "room.zip");
+  await consumeDuplicateToken(token, "userC", 2000, cloneC.id);
+
+  const tokenRow = await getDuplicateToken(token);
+  // Legacy columns: most recent claim only.
+  assert.equal(tokenRow!.consumed_by, "userC");
+  assert.equal(Number(tokenRow!.consumed_at), 2000);
+
+  // Audit table: every claim, in order.
+  const audit = await db
+    .selectFrom("duplicate_token_claim")
+    .selectAll()
+    .where("token_id", "=", tokenRow!.id)
+    .orderBy("claimed_at", "asc")
+    .execute();
+  assert.equal(audit.length, 2);
+  assert.equal(audit[0].claimed_by, "userB");
+  assert.equal(audit[0].furniture_id, cloneB.id);
+  assert.equal(audit[1].claimed_by, "userC");
+  assert.equal(audit[1].furniture_id, cloneC.id);
 });
 
 test("deleteDuplicateToken removes the row", async () => {
