@@ -41,14 +41,19 @@ cleanup, otherwise transient failures would silently destroy users' rooms.
 `examples/AssetViewerBase.cs` now has:
 
 ```csharp
-protected void LoadModelFromFileWithIdFromPrivateServer(string id, string sceneBaseId)
+protected void LoadModelFromFileWithIdFromPrivateServer(string id, string sceneBaseId, bool autoRemoveStaleKey = false)
 ```
 
 If `sceneBaseId` is null/empty it delegates to the existing single-arg
 overload (no self-heal possible without the key name). Otherwise it runs
-`CheckFurnitureExists` first and, on 404, calls
+`CheckFurnitureExists` first and, on 404, aborts the load with the
+loading spinner stopped. The stale `RoomDesign_<sceneBaseId>` PlayFab
+key is **only** deleted when `autoRemoveStaleKey` is `true`. The default
+is `false`, which leaves the cleanup decision to the caller — typical
+flow is to show the user a confirmation dialog and call
 `UserAccountManager.Instance.RemoveUserData("RoomDesign_" + sceneBaseId)`
-and aborts the load with the loading spinner stopped.
+yourself if they accept. Pass `true` only when the caller is certain
+that silent self-heal is the right UX for that load site.
 
 The one in-tree call site at the top of `LoadModelFromURLWithDialogValues`
 was migrated to pass `SessionInfo.RoomData?.RoomWrapper?.SceneBaseID`.
@@ -94,17 +99,25 @@ match the snapshot here):
 
 ### B. Decide on the user-facing UX for 404 self-heal
 
-When a stale key is auto-deleted, the user's experience is "I clicked a
-room and it vanished from the list." Choose one of:
+The `autoRemoveStaleKey` flag defaults to `false`, so by default the
+load just aborts and the stale key stays in the list. Choose one of:
 
-1. Toast: "This room is no longer available and has been removed from
-   your list." Then refresh the room list UI.
-2. Silent + refresh — log only, just refresh the list.
-3. Confirm dialog before deletion — adds a click but avoids surprise.
+1. **Confirm dialog (default-friendly).** Keep `autoRemoveStaleKey =
+   false`. On 404, show "This room is no longer available — remove it
+   from your list?" and on accept call
+   `UserAccountManager.Instance.RemoveUserData("RoomDesign_" + sceneBaseId)`
+   yourself. This needs a hook into the `onMissing` path; if the
+   built-in overload's logging is not enough, copy its body into the
+   call site or add a callback parameter.
+2. **Silent auto-cleanup + toast.** Pass `autoRemoveStaleKey = true` and
+   show a toast like "This room is no longer available and has been
+   removed from your list."
+3. **Silent auto-cleanup, no UI.** Pass `autoRemoveStaleKey = true` and
+   rely on the room-list refresh to make the entry vanish.
 
-The snapshot picks (2) by default (just `Debug.LogWarning` +
-`SetLoading(false)`). Pick whichever fits the product and update the
-`onMissing` body accordingly.
+Pick per load site. The safe default (option 1) avoids destroying a
+PlayFab key without explicit user consent, at the cost of leaving the
+key in the list until the user confirms.
 
 ### C. Make sure the room-list UI refreshes after self-heal
 

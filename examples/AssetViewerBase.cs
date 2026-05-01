@@ -555,9 +555,12 @@ private static extern void OpenFileDialogAndUploadJS(
 
         // P5 self-healing load. Use this overload whenever sceneBaseId is known
         // (i.e. the load was triggered by reading a RoomDesign_<sceneBaseId> key
-        // out of PlayFab). HEADs the server first; on 404 the stale PlayFab key
-        // is deleted so the room stops appearing in the user's list.
-        protected void LoadModelFromFileWithIdFromPrivateServer(string id, string sceneBaseId)
+        // out of PlayFab). HEADs the server first; on 404, if
+        // autoRemoveStaleKey is true the stale PlayFab key is deleted
+        // automatically. Default is false: the load is aborted but the key is
+        // left in place so the caller can prompt the user for confirmation
+        // before deleting.
+        protected void LoadModelFromFileWithIdFromPrivateServer(string id, string sceneBaseId, bool autoRemoveStaleKey = false)
         {
             if (string.IsNullOrEmpty(sceneBaseId))
             {
@@ -569,8 +572,15 @@ private static extern void OpenFileDialogAndUploadJS(
                 onFound: () => LoadModelFromFileWithIdFromPrivateServer(id),
                 onMissing: () =>
                 {
-                    Debug.LogWarning($"Furniture {id} no longer exists on server; removing stale PlayFab key RoomDesign_{sceneBaseId}");
-                    UserAccountManager.Instance.RemoveUserData("RoomDesign_" + sceneBaseId);
+                    if (autoRemoveStaleKey)
+                    {
+                        Debug.LogWarning($"Furniture {id} no longer exists on server; removing stale PlayFab key RoomDesign_{sceneBaseId}");
+                        UserAccountManager.Instance.RemoveUserData("RoomDesign_" + sceneBaseId);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Furniture {id} no longer exists on server; stale PlayFab key RoomDesign_{sceneBaseId} left in place (autoRemoveStaleKey=false)");
+                    }
                     SetLoading(false);
                 },
                 onError: (err) =>
