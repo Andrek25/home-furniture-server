@@ -11,6 +11,7 @@
     "selfhost": "cloudflared tunnel --url http://localhost:4000",
     "reconcile": "tsx --env-file=.env scripts/reconcile.ts",
     "sweep": "tsx --env-file=.env scripts/sweep-uncommitted.ts",
+    "backfill-owners": "tsx --env-file=.env scripts/backfill-owners.ts",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "keywords": [],
