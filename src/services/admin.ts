@@ -3,6 +3,7 @@ import { db } from "../config/db";
 import { ENV } from "../config/env";
 import { FURNITURE_PATH, THUMBNAIL_PATH } from "../config/path";
 import { removeThumbnailURL } from "../utils/thumbnails";
+import { saveFurnitureFromExisting } from "./furniture";
 import fs from "node:fs";
 import path from "node:path";
 import https from "node:https";
@@ -282,6 +283,158 @@ export async function backfillOwners(opts: BackfillOptions): Promise<BackfillRes
   }
 
   return result;
+}
+
+// ---------- PlayFab dedupe (one furniture row per RoomDesign key) ----------
+
+interface RoomRef {
+  playerId: string;
+  keyName: string;
+  rawValue: string;
+}
+
+function rewriteRoomDesignOriginUrl(rawValue: string, newOriginUrl: number): string {
+  const isOdin = rawValue.startsWith("ODIN|");
+  const json = isOdin ? rawValue.slice(5) : rawValue;
+  const parsed = JSON.parse(json);
+  // Preserve whichever casing the source used; preserve original numeric/string type.
+  const key = "OriginUrl" in parsed ? "OriginUrl" : "originUrl" in parsed ? "originUrl" : "OriginUrl";
+  const wasNumeric = typeof parsed[key] === "number";
+  parsed[key] = wasNumeric ? newOriginUrl : String(newOriginUrl);
+  return (isOdin ? "ODIN|" : "") + JSON.stringify(parsed);
+}
+
+function updateUserDataKey(playfabId: string, key: string, value: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    PlayFabAdmin.UpdateUserData(
+      { PlayFabId: playfabId, Data: { [key]: value } },
+      (err) => {
+        if (err) reject(new Error(err.errorMessage ?? String(err)));
+        else resolve();
+      }
+    );
+  });
+}
+
+export interface DedupeGroup {
+  furnitureId: number;
+  winner: { playerId: string; keyName: string };
+  losers: { playerId: string; keyName: string; newFurnitureId?: number; error?: string }[];
+}
+
+export interface DedupeResult {
+  totalPlayersScanned: number;
+  totalDuplicateGroups: number;
+  totalDuplicateRefs: number;
+  newRowsCreated: number;
+  playfabKeysRewritten: number;
+  groups: DedupeGroup[];
+}
+
+export async function dedupePlayfabReferences(opts: { apply?: boolean } = {}): Promise<DedupeResult> {
+  const playerIds = await getAllPlayerIds();
+
+  // furnitureId -> all references to it across all players
+  const refsByFurnitureId = new Map<number, RoomRef[]>();
+
+  for (const playerId of playerIds) {
+    let data: PlayFabAdminModels.GetUserDataResult;
+    try { data = await fetchUserData(playerId); }
+    catch { continue; }
+
+    for (const [key, record] of Object.entries(data.Data ?? {})) {
+      if (!key.startsWith("RoomDesign_")) continue;
+      const rawValue = record.Value ?? "";
+      const parsed = parseRoomDesignValue(rawValue);
+      if (parsed.kind !== "id") continue;
+
+      const list = refsByFurnitureId.get(parsed.id) ?? [];
+      list.push({ playerId, keyName: key, rawValue });
+      refsByFurnitureId.set(parsed.id, list);
+    }
+  }
+
+  // Filter to furniture IDs referenced by 2+ keys
+  const duplicateEntries = [...refsByFurnitureId.entries()].filter(([, refs]) => refs.length > 1);
+
+  const result: DedupeResult = {
+    totalPlayersScanned: playerIds.length,
+    totalDuplicateGroups: duplicateEntries.length,
+    totalDuplicateRefs: duplicateEntries.reduce((sum, [, refs]) => sum + refs.length - 1, 0),
+    newRowsCreated: 0,
+    playfabKeysRewritten: 0,
+    groups: [],
+  };
+
+  for (const [furnitureId, refs] of duplicateEntries) {
+    const [winner, ...losers] = refs;
+    const group: DedupeGroup = {
+      furnitureId,
+      winner: { playerId: winner.playerId, keyName: winner.keyName },
+      losers: losers.map((l) => ({ playerId: l.playerId, keyName: l.keyName })),
+    };
+    result.groups.push(group);
+
+    if (!opts.apply) continue;
+
+    // Load source row once per group — needed by saveFurnitureFromExisting.
+    const source = await db
+      .selectFrom("furniture")
+      .selectAll()
+      .where("id", "=", furnitureId)
+      .executeTakeFirst();
+
+    if (!source) {
+      // Source row vanished between scan and apply — every loser is now a zombie
+      // reference. Skip; backfill/zombies endpoint will surface it.
+      for (const slot of group.losers) slot.error = "source-furniture-missing";
+      continue;
+    }
+
+    for (let i = 0; i < losers.length; i++) {
+      const loser = losers[i];
+      const slot = group.losers[i];
+      try {
+        const created = await saveFurnitureFromExisting(loser.playerId, source);
+        slot.newFurnitureId = created.id;
+        result.newRowsCreated++;
+
+        const newValue = rewriteRoomDesignOriginUrl(loser.rawValue, created.id);
+        await updateUserDataKey(loser.playerId, loser.keyName, newValue);
+        result.playfabKeysRewritten++;
+      } catch (err) {
+        slot.error = err instanceof Error ? err.message : String(err);
+        // Don't roll back the new furniture row on PlayFab failure: the row is
+        // valid, the player owns it, only the PlayFab key still points at the
+        // old ID. Re-running dedupe will pick the same dup up and try again.
+      }
+    }
+  }
+
+  return result;
+}
+
+// ---------- Zombies (PlayFab-vs-DB drift) ----------
+
+export interface ZombiesResult {
+  totalPlayersScanned: number;
+  zombies: { furnitureId: number; playerId: string; keyName: string }[];
+  zombieCount: number;
+  uniqueZombieIds: number;
+}
+
+export async function getZombies(opts: { playerIds?: string[]; all?: boolean } = {}): Promise<ZombiesResult> {
+  const result = await backfillOwners({
+    playerIds: opts.playerIds,
+    all: opts.all ?? !opts.playerIds?.length,
+    apply: false,
+  });
+  return {
+    totalPlayersScanned: result.totalPlayersScanned,
+    zombies: result.zombies,
+    zombieCount: result.zombies.length,
+    uniqueZombieIds: new Set(result.zombies.map((z) => z.furnitureId)).size,
+  };
 }
 
 // ---------- Stats ----------

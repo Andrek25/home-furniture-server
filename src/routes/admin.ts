@@ -11,6 +11,8 @@ import {
   removeFurnitureOwner,
   listDuplicateTokens,
   reconcileDiskAndDb,
+  getZombies,
+  dedupePlayfabReferences,
 } from "../services/admin";
 import { deleteFurnitureById } from "../services/furniture";
 
@@ -208,6 +210,63 @@ export function AdminRoutes() {
     const apply = (req.body as { apply?: unknown })?.apply === true;
     try {
       res.json(await reconcileDiskAndDb({ apply }));
+    } catch (err) {
+      console.error(err);
+      res.sendStatus(500);
+    }
+  });
+
+  /**
+   * GET /admin/playfab-duplicates
+   * Detects PlayFab RoomDesign_* keys that share the same OriginUrl furniture
+   * ID — i.e. one furniture row referenced by multiple rooms. Read-only;
+   * returns the groups so you can review before applying.
+   *
+   * POST /admin/playfab-duplicates  body: { apply?: boolean }
+   * With apply=true, for every duplicate reference (all but one per group):
+   *   - Inserts a new furniture row that shares the source's zip file (cheap —
+   *     just a row + thumbnail copy, no zip duplication on disk).
+   *   - Assigns the duplicate's playerId as owner of the new row.
+   *   - Rewrites the PlayFab RoomDesign_* key's OriginUrl to the new ID via
+   *     PlayFabAdmin.UpdateUserData.
+   *
+   * The "winner" reference per group keeps the original furniture ID; everyone
+   * else gets a fresh row. After this runs successfully, every RoomDesign_*
+   * key points at a unique furniture row, so deleting a row is safe.
+   *
+   * Expensive — full segment export + UpdateUserData per loser. Run once.
+   */
+  router.get("/admin/playfab-duplicates", async (_req, res) => {
+    try {
+      res.json(await dedupePlayfabReferences({ apply: false }));
+    } catch (err) {
+      console.error(err);
+      res.sendStatus(500);
+    }
+  });
+
+  router.post("/admin/playfab-duplicates", async (req, res) => {
+    const apply = (req.body as { apply?: unknown })?.apply === true;
+    try {
+      res.json(await dedupePlayfabReferences({ apply }));
+    } catch (err) {
+      console.error(err);
+      res.sendStatus(500);
+    }
+  });
+
+  /**
+   * GET /admin/zombies
+   * PlayFab → DB drift report. Scans every player's RoomDesign_* keys via
+   * ExportPlayersInSegment and returns furniture IDs referenced in PlayFab
+   * that are missing from the local DB. Read-only; no mutation.
+   *
+   * Expensive — enumerates all players. Do not poll. Use POST /admin/backfill
+   * if you also want to insert missing owner rows or scope to specific players.
+   */
+  router.get("/admin/zombies", async (_req, res) => {
+    try {
+      res.json(await getZombies({ all: true }));
     } catch (err) {
       console.error(err);
       res.sendStatus(500);

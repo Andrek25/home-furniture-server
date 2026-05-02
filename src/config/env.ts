@@ -47,6 +47,12 @@ interface Env {
    * enforced at claim time. Default: `10`.
    */
   DUPLICATE_TOKEN_EXPIRY: number;
+  /**
+   * PlayFab ID of the single account allowed to call /admin/* routes. The
+   * admin middleware authenticates via the normal X-PlayFab-Auth-Token header
+   * and rejects any caller whose resolved PlayFab ID does not match this.
+   */
+  ADMIN_PLAYFAB_ID: string;
 }
 
 const NODE_ENV = <Env["NODE_ENV"]>process.env.NODE_ENV || "development";
@@ -64,6 +70,7 @@ export const ENV: Env = {
   PLAYFAB_DEVELOPER_SECRET_KEY: process.env.PLAYFAB_DEVELOPER_SECRET_KEY || "",
   DISK_ROOT_PATH: process.env.DISK_ROOT_PATH || "/var/furniture-server",
   DUPLICATE_TOKEN_EXPIRY: Number(process.env.DUPLICATE_TOKEN_EXPIRY) || 10,
+  ADMIN_PLAYFAB_ID: process.env.ADMIN_PLAYFAB_ID || "DAB674F3C666368C",
 };
 
 // Print all resolved values in dev so misconfiguration is visible immediately.
