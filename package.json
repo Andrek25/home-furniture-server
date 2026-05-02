@@ -9,7 +9,10 @@
     "migrate:unsafe": "kysely migrate:rollback --all && kysely migrate:latest",
     "migrate": "kysely migrate:latest",
     "selfhost": "cloudflared tunnel --url http://localhost:4000",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "reconcile": "tsx --env-file=.env scripts/reconcile.ts",
+    "sweep": "tsx --env-file=.env scripts/sweep-uncommitted.ts",
+    "backfill-owners": "tsx --env-file=.env scripts/backfill-owners.ts",
+    "test": "tsx --test tests/**/*.test.ts"
   },
   "keywords": [],
   "author": "",

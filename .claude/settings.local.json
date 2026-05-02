@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm_config_node_gyp=\"C:\\\\\\\\Users\\\\\\\\asus\\\\\\\\AppData\\\\\\\\Roaming\\\\\\\\npm\\\\\\\\node_modules\\\\\\\\node-gyp\\\\\\\\bin\\\\\\\\node-gyp.js\" node --env-file=.env node_modules/kysely-ctl/dist/bin/kysely.js migrate:latest)",
+      "Bash(pnpm run *)",
+      "Bash(node -e ' *)",
+      "Bash(npx tsx *)",
+      "Bash(pnpm test *)",
+      "Bash(echo \"---exit: $?---\")",
+      "Bash(pnpm reconcile *)",
+      "Bash(pnpm tsx *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(pnpm migrate *)",
+      "Bash(pnpm sweep *)",
+      "Bash(pnpm dev *)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\" -H \"x-playfab-auth-token: 1037F3663D685D53-C7689265FB301DEA-7363F8621DB3AEA1-C5C29-8DEA7AFE6B60CE2-nCDqD3oEGio3WI+mFmFmTQOgVx40Wy7HlMJuGedQD7s=\" http://localhost:4000/api/v1/furnitures)",
+      "Bash(sqlite3 data/db.sqlite \".tables\")",
+      "Bash(sqlite3 data/db.sqlite \"SELECT * FROM furniture;\")",
+      "Bash(sqlite3 data/db.sqlite \"SELECT * FROM furniture_owner;\")",
+      "Bash(curl *)",
+      "Bash(pnpm backfill-owners *)",
+      "Bash(node *)",
+      "Bash(grep -v \"NODE_ENV\\\\|DEV:\\\\|PROD:\\\\|PORT:\\\\|PLAYFAB\\\\|DISK_ROOT\\\\|DUPLICATE\\\\|^{$\\\\|^}$\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(pnpm tsc *)"
+    ]
+  }
+}
